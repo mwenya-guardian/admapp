@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#121212" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>ADM Scanner</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="/icons/icon-192.png" />
+    <script defer src="/__/firebase/12.12.0/firebase-app-compat.js"></script>
+    <script defer src="/__/firebase/12.12.0/firebase-auth-compat.js"></script>
+    <script defer src="/__/firebase/12.12.0/firebase-firestore-compat.js"></script>
+    <script defer src="/__/firebase/init.js"></script>
+    <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Scanner</h1>
+      <p class="subtitle">Track scans and sync when you are back online</p>
+      <div id="user-pill" class="user-pill hidden" aria-live="polite"></div>
+    </header>
+
+    <section class="stats-grid" aria-label="Scan statistics">
+      <button type="button" class="stat-card stat-card--tap" id="card-today" aria-label="Uploaded today, show list">
+        <div id="stat-today" class="value">0</div>
+        <div class="label">Today</div>
+      </button>
+      <button type="button" class="stat-card stat-card--tap" id="card-all" aria-label="Uploaded all time, show list">
+        <div id="stat-all" class="value">0</div>
+        <div class="label">All time</div>
+      </button>
+      <button type="button" class="stat-card stat-card--tap highlight" id="card-pending" aria-label="Pending upload, show list">
+        <div id="stat-pending" class="value">0</div>
+        <div class="label">Pending</div>
+      </button>
+    </section>
+
+    <main>
+      <div class="scan-actions">
+        <button type="button" id="btn-camera" class="btn btn-secondary">
+          Allow camera &amp; start scanning
+        </button>
+        <button type="button" id="btn-stop" class="btn btn-ghost hidden">Stop camera</button>
+      </div>
+      <div id="reader-wrap" class="hidden" aria-hidden="true">
+        <div id="reader"></div>
+      </div>
+      <p id="status" class="status-line" role="status"></p>
+      <button type="button" id="btn-change-user" class="btn btn-ghost">Change number</button>
+      <p class="footer-note">Add to Home Screen for a full-screen app experience.</p>
+    </main>
+
+    <div id="scan-choice-backdrop" class="modal-backdrop scan-choice-backdrop hidden" role="presentation">
+      <div
+        class="modal scan-choice-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scan-choice-title"
+        aria-describedby="scan-choice-desc"
+      >
+        <h2 id="scan-choice-title">Saved locally</h2>
+        <p id="scan-choice-desc" class="scan-choice-desc">
+          Code <strong id="scan-choice-code"></strong> is in your pending list.
+        </p>
+        <div class="modal-actions scan-choice-actions">
+          <button type="button" id="btn-scan-next" class="btn btn-secondary">Next</button>
+          <button type="button" id="btn-scan-done" class="btn btn-primary">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="list-panel-backdrop" class="modal-backdrop hidden" role="presentation">
+      <div
+        class="modal sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="list-panel-title"
+        id="list-panel-dialog"
+      >
+        <div class="sheet-head">
+          <h2 id="list-panel-title">List</h2>
+          <button type="button" id="list-panel-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+        <p id="list-panel-sub" class="sheet-sub hidden"></p>
+        <div id="list-panel-body" class="list-panel-body"></div>
+        <div id="list-panel-footer" class="sheet-footer hidden">
+          <button type="button" id="list-select-all" class="btn btn-secondary">Select all</button>
+          <button type="button" id="list-upload" class="btn btn-primary">Upload</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-backdrop" class="modal-backdrop hidden" role="presentation">
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        aria-describedby="modal-desc"
+      >
+        <h2 id="modal-title">Your number</h2>
+        <p id="modal-desc">
+          Enter the number used as your username. It is stored only on this device and sent with
+          each scan.
+        </p>
+        <label for="username-input">Number</label>
+        <input
+          id="username-input"
+          type="text"
+          inputmode="numeric"
+          autocomplete="username"
+          maxlength="64"
+          placeholder="e.g. 12345"
+        />
+        <div class="modal-actions">
+          <button type="button" id="modal-cancel" class="btn btn-secondary hidden">Cancel</button>
+          <button type="button" id="modal-save" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

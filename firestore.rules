@@ -1,0 +1,50 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: imeis
+// Document ID: auto-generated
+// Fields:
+//   - uid (string, required, immutable) — Firebase Auth UID
+//   - username (string, required) — local user number/identifier
+//   - imei (string, required) — scanned value (barcode / IMEI-style number)
+//   - scannedAt (timestamp, required) — client time of scan
+//   - uploadedAt (timestamp, required) — client time when uploaded to Firestore
+//
+// ===============================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function ownsRecord() {
+      return request.resource.data.uid == request.auth.uid;
+    }
+
+    function validImeiCreate() {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['uid', 'username', 'imei', 'scannedAt', 'uploadedAt'])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.username is string
+        && data.username.size() > 0
+        && data.username.size() <= 64
+        && data.imei is string
+        && data.imei.size() > 0
+        && data.imei.size() <= 2048
+        && data.scannedAt is timestamp
+        && data.uploadedAt is timestamp;
+    }
+
+    match /imeis/{docId} {
+      allow create: if isAuthenticated() && validImeiCreate() && ownsRecord();
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
