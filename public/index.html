@@ -19,10 +19,9 @@
     />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="icon" href="/icons/icon-192.png" />
-    <script defer src="/__/firebase/12.12.0/firebase-app-compat.js"></script>
-    <script defer src="/__/firebase/12.12.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.12.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/init.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script defer src="/app.js"></script>
   </head>
@@ -122,8 +121,9 @@
           type="text"
           inputmode="numeric"
           autocomplete="username"
-          maxlength="64"
-          placeholder="e.g. 12345"
+          minlength="9"
+          maxlength="9"
+          placeholder="e.g. 97898XXXX"
         />
         <div class="modal-actions">
           <button type="button" id="modal-cancel" class="btn btn-secondary hidden">Cancel</button>

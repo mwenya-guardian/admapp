@@ -161,7 +161,7 @@
 
   function validateUsername(v) {
     var t = String(v || '').trim();
-    return t.length > 0 && t.length <= 64;
+    return t.length === 9 && /^[0-9]+$/.test(t);
   }
 
   function ensureAuth() {
@@ -542,13 +542,16 @@
     }
     setStatus('Starting camera…');
     clearReaderDom();
+    
+    // Unhide the wrapper BEFORE starting the scanner so the library can calculate dimensions
+    $('reader-wrap').classList.remove('hidden');
+    $('reader-wrap').setAttribute('aria-hidden', 'false');
+    
     state.scanner = buildScanner();
     state.scanner
       .start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {})
       .then(function () {
         state.scanning = true;
-        $('reader-wrap').classList.remove('hidden');
-        $('reader-wrap').setAttribute('aria-hidden', 'false');
         $('btn-stop').classList.remove('hidden');
         $('btn-camera').disabled = true;
         setStatus('Point the camera at a barcode or QR code.');
@@ -563,6 +566,8 @@
         state.scanner = null;
         state.scanning = false;
         clearReaderDom();
+        $('reader-wrap').classList.add('hidden');
+        $('reader-wrap').setAttribute('aria-hidden', 'true');
       });
   }
 
@@ -619,7 +624,7 @@
     $('modal-save').addEventListener('click', function () {
       var v = $('username-input').value;
       if (!validateUsername(v)) {
-        setStatus('Enter a number (1–64 characters).', 'error');
+        setStatus('Enter a 9-digit number.', 'error');
         return;
       }
       state.username = v.trim();
@@ -667,6 +672,20 @@
   }
 
   function init() {
+    var firebaseConfig = {
+      apiKey: "AIzaSyBHwXGDO6sBnKB4RNK1dSY026yRb03uaoQ",
+      authDomain: "admapp-76e69.firebaseapp.com",
+      projectId: "admapp-76e69",
+      storageBucket: "admapp-76e69.firebasestorage.app",
+      messagingSenderId: "909491626456",
+      appId: "1:909491626456:web:b3f7b076e68f06ef1312ad",
+      measurementId: "G-V335EQ85G5"
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+
     state.username = loadUsername();
     state.pending = loadPending();
     state.uploaded = loadUploaded();
