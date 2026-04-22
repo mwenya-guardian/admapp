@@ -1,4 +1,4 @@
-const CACHE = 'adm-pwa-v4';
+const CACHE = 'adm-pwa-v5';
 const ASSETS = [
   '/',
   '/index.html',
@@ -30,16 +30,18 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/__/')) return;
 
+  // Network-First Strategy
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((res) => {
+    fetch(request)
+      .then((res) => {
+        // If network request succeeds, save a fresh copy to cache
         const copy = res.clone();
-        if (res.ok && request.destination !== 'document') {
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-        }
+        caches.open(CACHE).then((cache) => cache.put(request, copy));
         return res;
-      });
-    })
+      })
+      .catch(() => {
+        // If network request fails (e.g., offline), fallback to cache
+        return caches.match(request);
+      })
   );
 });

@@ -291,18 +291,27 @@
       });
   }
 
-  function writeImeiToFirestore(pendingItem, uploadedAt) {
-    var user = firebase.auth().currentUser;
-    if (!user) return Promise.reject(new Error('Not signed in'));
+  var API_ENDPOINT = 'https://confusion-unlatch-boxer.ngrok-free.dev/api/imeis/device-records';
+
+  function writeImeiToApi(pendingItem) {
     var scannedDate = new Date(pendingItem.scannedAt);
     if (isNaN(scannedDate.getTime())) scannedDate = new Date();
-    var db = firebase.firestore();
-    return db.collection('imeis').add({
-      uid: user.uid,
-      username: String(state.username || '').trim(),
+    var payload = {
+      cug: String(state.username || '').trim(),
       imei: String(pendingItem.barcode).trim(),
-      scannedAt: firebase.firestore.Timestamp.fromDate(scannedDate),
-      uploadedAt: firebase.firestore.Timestamp.fromDate(uploadedAt)
+      timestamp: scannedDate.toISOString()
+    };
+    return fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (msg) {
+          throw new Error('Server error ' + res.status + ': ' + msg);
+        });
+      }
+      return res.json().catch(function () { return {}; });
     });
   }
 
@@ -447,12 +456,6 @@
       return;
     }
 
-    var user = firebase.auth().currentUser;
-    if (!user) {
-      setStatus('Not signed in yet. Try again in a moment.', 'error');
-      return;
-    }
-
     state.uploading = true;
     var btn = $('list-upload');
     btn.disabled = true;
@@ -484,10 +487,11 @@
       }
 
       var uploadedAt = new Date();
-      writeImeiToFirestore(item, uploadedAt)
-        .then(function (ref) {
+      writeImeiToApi(item)
+        .then(function (resp) {
+          var serverId = (resp && (resp._id || resp.id)) || '';
           removePendingById(item.id);
-          appendUploadedRecord(item, uploadedAt.toISOString(), ref.id);
+          appendUploadedRecord(item, uploadedAt.toISOString(), serverId);
           uploadNext(index + 1);
         })
         .catch(function (err) {
