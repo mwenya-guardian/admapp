@@ -17,7 +17,8 @@
     uploaded: [],
     panelMode: null,
     uploading: false,
-    scanChoiceOpen: false
+    scanChoiceOpen: false,
+    lastSavedId: null
   };
 
   function $(id) {
@@ -130,6 +131,58 @@
     if (kind) el.classList.add(kind);
   }
 
+  /* ── Toast notifications ───────────────────────────────────────── */
+  var _toastTimer = null;
+  function showToast(message, kind, duration) {
+    var container = $('toast-container');
+    if (!container) return;
+    // Clear any existing toast
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+    // Remove old toasts immediately
+    var old = container.querySelector('.toast');
+    if (old) { old.remove(); }
+
+    var toast = document.createElement('div');
+    toast.className = 'toast toast--' + (kind || 'info');
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+
+    var icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.textContent = kind === 'success' ? '✓' : kind === 'error' ? '✕' : 'ℹ';
+
+    var text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = message || '';
+
+    var close = document.createElement('button');
+    close.className = 'toast-close';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.textContent = '×';
+    close.addEventListener('click', function () {
+      toast.classList.add('toast--out');
+      setTimeout(function () { toast.remove(); }, 300);
+    });
+
+    toast.appendChild(icon);
+    toast.appendChild(text);
+    toast.appendChild(close);
+    container.appendChild(toast);
+
+    // Animate in
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        toast.classList.add('toast--in');
+      });
+    });
+
+    var ms = duration || (kind === 'error' ? 6000 : 4000);
+    _toastTimer = setTimeout(function () {
+      toast.classList.add('toast--out');
+      setTimeout(function () { if (toast.parentNode) toast.remove(); }, 300);
+    }, ms);
+  }
+
   function showUserPill() {
     var pill = $('user-pill');
     if (!state.username) {
@@ -228,19 +281,40 @@
 
   function enqueuePendingScan(barcode) {
     var code = String(barcode || '').trim();
-    if (!code) return;
+    if (!code) return false;
+    // Duplicate check — already in pending list?
+    var alreadyPending = state.pending.some(function (p) {
+      return p.barcode === code;
+    });
+    if (alreadyPending) {
+      showToast('\u26a0\ufe0f Duplicate — "' + code + '" is already in pending.', 'error', 4000);
+      return false; // signal: not saved
+    }
     var scannedAt = new Date().toISOString();
-    state.pending.push({
+    state.lastSavedId = null; // clear before push
+    var entry = {
       id: newLocalId(),
       barcode: code,
       scannedAt: scannedAt
-    });
+    };
+    state.pending.push(entry);
+    state.lastSavedId = entry.id; // track so re-entry btn can remove it
     persistPending();
     renderStats();
+    return true; // signal: saved
   }
 
-  function showScanChoiceSheet(code) {
+  function showScanChoiceSheet(code, isDuplicate) {
     $('scan-choice-code').textContent = code;
+    var dupEl = $('scan-choice-dup');
+    var descEl = $('scan-choice-desc');
+    if (isDuplicate) {
+      dupEl.classList.remove('hidden');
+      descEl.classList.add('hidden');
+    } else {
+      dupEl.classList.add('hidden');
+      descEl.classList.remove('hidden');
+    }
     $('scan-choice-backdrop').classList.remove('hidden');
     setTimeout(function () {
       $('btn-scan-next').focus();
@@ -291,7 +365,7 @@
       });
   }
 
-  var API_ENDPOINT = 'https://confusion-unlatch-boxer.ngrok-free.dev/api/imeis/device-records';
+  var API_ENDPOINT = 'https://adm-backend-s1wt.onrender.com/api/imeis/device-records';
 
   function writeImeiToApi(pendingItem) {
     var scannedDate = new Date(pendingItem.scannedAt);
@@ -470,8 +544,13 @@
         renderStats();
         renderListPanelBody();
         if (failed.length) {
-          setStatus('Some uploads failed (' + failed.length + '). Check connection and rules.', 'error');
+          showToast(
+            'Failed to upload ' + failed.length + ' item(s): ' + failed.join(', '),
+            'error'
+          );
+          setStatus('Some uploads failed (' + failed.length + ').', 'error');
         } else {
+          showToast('Upload complete! ' + ids.length + ' record(s) saved.', 'success');
           setStatus('Upload complete.', 'success');
         }
         return;
@@ -492,11 +571,13 @@
           var serverId = (resp && (resp._id || resp.id)) || '';
           removePendingById(item.id);
           appendUploadedRecord(item, uploadedAt.toISOString(), serverId);
+          showToast('Saved: ' + item.barcode, 'success', 2500);
           uploadNext(index + 1);
         })
         .catch(function (err) {
           console.error(err);
           failed.push(item.barcode);
+          showToast('Error saving ' + item.barcode + ': ' + (err.message || 'Network error'), 'error', 5000);
           uploadNext(index + 1);
         });
     }
@@ -534,8 +615,8 @@
       }
     }
 
-    enqueuePendingScan(text);
-    showScanChoiceSheet(text);
+    var saved = enqueuePendingScan(text);
+    showScanChoiceSheet(text, !saved); // pass isDuplicate flag
   }
 
   function startScanner() {
@@ -673,23 +754,22 @@
         setStatus('Select items to upload when you are ready.');
       });
     });
+    // Re-entry button: discard the last-saved scan (wrong code) and resume
+    $('btn-scan-reentry').addEventListener('click', function () {
+      if (state.lastSavedId) {
+        removePendingById(state.lastSavedId);
+        state.lastSavedId = null;
+        renderStats();
+        showToast('Scan removed. Point camera at the correct code.', 'info', 3000);
+      } else {
+        showToast('No scan to remove. Ready for next code.', 'info', 2500);
+      }
+      $('scan-choice-backdrop').classList.add('hidden');
+      resumeScannerForNextScan();
+    });
   }
 
   function init() {
-    var firebaseConfig = {
-      apiKey: "AIzaSyBHwXGDO6sBnKB4RNK1dSY026yRb03uaoQ",
-      authDomain: "admapp-76e69.firebaseapp.com",
-      projectId: "admapp-76e69",
-      storageBucket: "admapp-76e69.firebasestorage.app",
-      messagingSenderId: "909491626456",
-      appId: "1:909491626456:web:b3f7b076e68f06ef1312ad",
-      measurementId: "G-V335EQ85G5"
-    };
-
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
-    }
-
     state.username = loadUsername();
     state.pending = loadPending();
     state.uploaded = loadUploaded();
@@ -701,10 +781,6 @@
     if (!state.username) {
       openModal(false);
     }
-
-    ensureFirestorePersistence().then(function () {
-      return ensureAuth();
-    });
   }
 
   if (document.readyState === 'loading') {

@@ -359,6 +359,7 @@ main {
 
 .scan-choice-dialog {
   max-width: 400px;
+  position: relative; /* anchor for the corner re-entry button */
 }
 
 .scan-choice-desc {
@@ -383,6 +384,55 @@ main {
 .scan-choice-actions .btn {
   flex: 1;
   min-width: 0;
+}
+
+/* Re-entry / retry button — top-right corner of the saved-locally card */
+.scan-reentry-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  appearance: none;
+  border: none;
+  background: var(--surface-elevated);
+  color: var(--text-muted);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  z-index: 1;
+}
+
+.scan-reentry-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(232, 93, 76, 0.4);
+}
+
+.scan-reentry-btn:active {
+  transform: scale(0.92);
+}
+
+/* Duplicate warning shown in place of the normal description */
+.scan-choice-dup {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.4;
+}
+
+.scan-choice-dup.hidden {
+  display: none;
 }
 
 .modal-backdrop.hidden {
@@ -476,4 +526,110 @@ main {
   .stat-card .value {
     font-size: 1.4rem;
   }
+}
+
+/* ── Toast notifications ─────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 420px);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-radius: 14px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: all;
+  cursor: default;
+
+  /* Start hidden & below */
+  opacity: 0;
+  transform: translateY(18px) scale(0.97);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.toast--in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.toast--out {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Variants */
+.toast--success {
+  background: linear-gradient(135deg, #14532d 0%, #15803d 100%);
+  color: #dcfce7;
+  border-color: rgba(74, 222, 128, 0.25);
+}
+
+.toast--error {
+  background: linear-gradient(135deg, #450a0a 0%, #991b1b 100%);
+  color: #fee2e2;
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.toast--info {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%);
+  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.25);
+}
+
+.toast-icon {
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  line-height: 1;
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.toast-close {
+  appearance: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.toast-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.22);
 }
