@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
     />
-    <meta name="theme-color" content="#121212" />
+    <meta name="theme-color" content="#0E1117" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>ADM Scanner</title>
@@ -23,121 +23,112 @@
     <script defer src="/app.js"></script>
   </head>
   <body>
-    <header class="app-header">
-      <h1>Scanner</h1>
-      <p class="subtitle">Track scans and sync when you are back online</p>
-      <div id="user-pill" class="user-pill hidden" aria-live="polite"></div>
-    </header>
-
-    <section class="stats-grid" aria-label="Scan statistics">
-      <button type="button" class="stat-card stat-card--tap" id="card-today" aria-label="Uploaded today, show list">
-        <div id="stat-today" class="value">0</div>
-        <div class="label">Today</div>
-      </button>
-      <button type="button" class="stat-card stat-card--tap" id="card-all" aria-label="Uploaded all time, show list">
-        <div id="stat-all" class="value">0</div>
-        <div class="label">All time</div>
-      </button>
-      <button type="button" class="stat-card stat-card--tap highlight" id="card-pending" aria-label="Pending upload, show list">
-        <div id="stat-pending" class="value">0</div>
-        <div class="label">Pending</div>
-      </button>
-    </section>
-
-    <main>
-      <div class="scan-actions">
-        <button type="button" id="btn-camera" class="btn btn-secondary">
-          Allow camera &amp; start scanning
-        </button>
-        <button type="button" id="btn-stop" class="btn btn-ghost hidden">Stop camera</button>
-      </div>
-      <div id="reader-wrap" class="hidden" aria-hidden="true">
-        <div id="reader"></div>
-      </div>
-      <p id="status" class="status-line" role="status"></p>
-      <button type="button" id="btn-change-user" class="btn btn-ghost">Change number</button>
-      <p class="footer-note">Add to Home Screen for a full-screen app experience.</p>
-    </main>
-
-    <div id="scan-choice-backdrop" class="modal-backdrop scan-choice-backdrop hidden" role="presentation">
-      <div
-        class="modal scan-choice-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="scan-choice-title"
-        aria-describedby="scan-choice-desc"
-      >
-        <!-- Re-entry / dismiss button in the top-right corner -->
-        <button type="button" id="btn-scan-reentry" class="scan-reentry-btn" aria-label="Dismiss and retry scan">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="1 4 1 10 7 10"/>
-            <path d="M3.51 15a9 9 0 1 0 .49-3.33"/>
-          </svg>
-        </button>
-        <h2 id="scan-choice-title">Saved locally</h2>
-        <p id="scan-choice-dup" class="scan-choice-dup hidden" role="alert">Already in pending — duplicate not saved.</p>
-        <p id="scan-choice-desc" class="scan-choice-desc">
-          Code <strong id="scan-choice-code"></strong> is in your pending list.
-        </p>
-        <div class="modal-actions scan-choice-actions">
-          <button type="button" id="btn-scan-next" class="btn btn-secondary">Next</button>
-          <button type="button" id="btn-scan-done" class="btn btn-primary">Done</button>
+    <div id="app-root">
+      <header class="topbar" aria-label="App bar">
+        <div class="topbar__brand">
+          <h1 class="topbar__title">ADM Scanner</h1>
+          <span id="conn-pill" class="conn-pill conn-pill--online" aria-live="polite">Online</span>
         </div>
-      </div>
+        <details class="topbar-menu" id="topbar-menu">
+          <summary class="menu-trigger" aria-label="Open menu">⋮</summary>
+          <div class="menu-panel" role="menu">
+            <button type="button" class="menu-item" id="menu-history" role="menuitem">History</button>
+            <button type="button" class="menu-item" id="menu-settings" role="menuitem">Settings</button>
+          </div>
+        </details>
+      </header>
+
+      <!-- Scan view -->
+      <main id="view-scan" class="view view--hidden" aria-label="Scanner">
+        <div class="scan-stack">
+          <div id="reader-wrap" class="reader-shell hidden" aria-hidden="true">
+            <div id="reader"></div>
+          </div>
+          <p id="status" class="status-line" role="status"></p>
+
+          <section class="session-section" aria-labelledby="session-heading">
+            <h2 id="session-heading" class="section-title">Scanned devices</h2>
+            <div id="session-list" class="session-list" role="list"></div>
+            <p id="session-empty" class="session-empty">No IMEIs in this session yet. Point the camera at a barcode.</p>
+          </section>
+
+          <div class="action-row">
+            <button type="button" id="btn-retry" class="btn btn-secondary">Retry camera</button>
+            <button type="button" id="btn-submit" class="btn btn-primary" disabled>Submit</button>
+          </div>
+          <p id="outbox-hint" class="outbox-hint hidden" role="status"></p>
+          <p class="footer-note">Install to Home Screen for a full-screen experience.</p>
+        </div>
+      </main>
+
+      <!-- History view -->
+      <main id="view-history" class="view view--hidden" aria-label="History">
+        <div class="subnav">
+          <button type="button" id="history-back" class="btn btn-ghost btn--back">← Back</button>
+          <p class="subnav__cug">CUG <strong id="history-cug">—</strong></p>
+        </div>
+        <div id="history-body" class="history-body"></div>
+      </main>
+
+      <!-- Settings view -->
+      <main id="view-settings" class="view view--hidden" aria-label="Settings">
+        <div class="subnav">
+          <button type="button" id="settings-back" class="btn btn-ghost btn--back hidden">← Back</button>
+          <p class="subnav__title">Settings</p>
+        </div>
+        <div class="settings-card">
+          <h2 class="settings-card__title">Installer CUG</h2>
+          <p class="settings-card__hint">
+            Enter your 9-digit CUG (for example <strong>97898XXXX</strong>). This value is stored only on this device
+            and sent with each scan. Make sure it is correct before scanning.
+          </p>
+          <label class="field-label" for="settings-cug-input">CUG</label>
+          <input
+            id="settings-cug-input"
+            type="text"
+            inputmode="numeric"
+            autocomplete="username"
+            minlength="9"
+            maxlength="9"
+            placeholder="97898XXXX"
+          />
+          <button type="button" id="settings-save" class="btn btn-primary settings-save">Save CUG &amp; sync</button>
+          <details class="settings-advanced">
+            <summary>Advanced</summary>
+            <label class="field-label" for="settings-api-input">API base URL</label>
+            <input
+              id="settings-api-input"
+              type="url"
+              placeholder="https://…/api"
+              spellcheck="false"
+            />
+            <p class="settings-advanced__hint">Must end with <code>/api</code> (no trailing slash). Used for sync and submit.</p>
+          </details>
+        </div>
+      </main>
     </div>
 
-    <div id="list-panel-backdrop" class="modal-backdrop hidden" role="presentation">
-      <div
-        class="modal sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="list-panel-title"
-        id="list-panel-dialog"
-      >
-        <div class="sheet-head">
-          <h2 id="list-panel-title">List</h2>
-          <button type="button" id="list-panel-close" class="btn-icon" aria-label="Close">×</button>
-        </div>
-        <p id="list-panel-sub" class="sheet-sub hidden"></p>
-        <div id="list-panel-body" class="list-panel-body"></div>
-        <div id="list-panel-footer" class="sheet-footer hidden">
-          <button type="button" id="list-select-all" class="btn btn-secondary">Select all</button>
-          <button type="button" id="list-upload" class="btn btn-primary">Upload</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="modal-backdrop" class="modal-backdrop hidden" role="presentation">
+    <!-- Submit confirmation -->
+    <div id="submit-confirm-backdrop" class="modal-backdrop hidden" role="presentation">
       <div
         class="modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        aria-describedby="modal-desc"
+        aria-labelledby="submit-confirm-title"
+        aria-describedby="submit-confirm-desc"
       >
-        <h2 id="modal-title">Your number</h2>
-        <p id="modal-desc">
-          Enter the number used as your username. It is stored only on this device and sent with
-          each scan.
+        <h2 id="submit-confirm-title">Submit IMEIs?</h2>
+        <p id="submit-confirm-desc">
+          Are you sure you want to submit these IMEIs? Please verify that all scanned devices are correct before
+          continuing.
         </p>
-        <label for="username-input">Number</label>
-        <input
-          id="username-input"
-          type="text"
-          inputmode="numeric"
-          autocomplete="username"
-          minlength="9"
-          maxlength="9"
-          placeholder="e.g. 97898XXXX"
-        />
         <div class="modal-actions">
-          <button type="button" id="modal-cancel" class="btn btn-secondary hidden">Cancel</button>
-          <button type="button" id="modal-save" class="btn btn-primary">Save</button>
+          <button type="button" id="submit-cancel" class="btn btn-secondary">Cancel</button>
+          <button type="button" id="submit-confirm" class="btn btn-primary">Confirm submit</button>
         </div>
       </div>
     </div>
 
-    <!-- Toast popup container -->
     <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="false"></div>
   </body>
 </html>

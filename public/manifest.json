@@ -1,11 +1,11 @@
 {
-  "name": "ADM Barcode Scanner",
-  "short_name": "ADM Scan",
-  "description": "Mobile barcode scanner with offline sync",
+  "name": "ADM Scanner",
+  "short_name": "ADM Scanner",
+  "description": "Installer PWA: scan IMEIs offline-first and sync to ADM backend",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#121212",
-  "theme_color": "#121212",
+  "background_color": "#0E1117",
+  "theme_color": "#0E1117",
   "orientation": "portrait-primary",
   "icons": [
     {
