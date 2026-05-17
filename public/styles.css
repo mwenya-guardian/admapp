@@ -516,6 +516,25 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.subnav__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.subnav__row .subnav__cug {
+  margin: 0;
+  min-width: 0;
+}
+
+.btn--compact {
+  padding: 7px 12px;
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+}
+
 .settings-card {
   background: rgb(var(--card));
   border: 1px solid rgb(var(--border));

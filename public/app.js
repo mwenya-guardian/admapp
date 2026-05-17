@@ -184,6 +184,96 @@
     });
   }
 
+  function historyForCurrentCug() {
+    return state.history.filter(function (row) {
+      if (!state.cug) return false;
+      if (!row.cug) return true;
+      return row.cug === state.cug;
+    });
+  }
+
+  function syncHistoryFromServer(items, cug) {
+    var cugClean = String(cug || '').trim();
+    if (!cugClean) return;
+
+    var fromServer = [];
+    var seen = {};
+    (items || []).forEach(function (row) {
+      var imei = String((row && row.imei) || '').trim();
+      if (!imei) return;
+      var norm = normDigits(imei);
+      if (!norm || seen[norm]) return;
+      seen[norm] = true;
+      var ts = row.timestamp || new Date().toISOString();
+      var uploadedAt =
+        typeof ts === 'string' ? ts : new Date(ts).toISOString();
+      fromServer.push({
+        cug: cugClean,
+        dayKey: dayKeyFromIso(uploadedAt) || dayKeyFromIso(new Date().toISOString()),
+        imei: imei,
+        uploadedAt: uploadedAt
+      });
+    });
+
+    var localOnly = state.history.filter(function (h) {
+      if (h.cug !== cugClean) return false;
+      return !seen[normDigits(h.imei)];
+    });
+
+    state.history = state.history.filter(function (h) {
+      return h.cug !== cugClean;
+    });
+    state.history = state.history.concat(fromServer, localOnly);
+    persistHistory();
+  }
+
+  function migrateHistoryCug() {
+    if (!state.cug) return;
+    var changed = false;
+    state.history.forEach(function (h) {
+      if (!h.cug) {
+        h.cug = state.cug;
+        changed = true;
+      }
+    });
+    if (changed) persistHistory();
+  }
+
+  function refreshHistoryFromServer(showToastOnSuccess) {
+    if (!state.cug) {
+      showToast('Set your CUG in Settings first.', 'error', 3500);
+      return Promise.reject(new Error('no cug'));
+    }
+    if (!navigator.onLine) {
+      showToast('Offline — connect to the internet to refresh.', 'error', 4000);
+      return Promise.reject(new Error('offline'));
+    }
+
+    var btn = $('history-refresh');
+    if (btn) btn.disabled = true;
+
+    return fetchScannerDeviceRecords()
+      .then(function (data) {
+        state.serverImeiKeys = {};
+        mergeServerImeisFromItems(data.items || []);
+        persistServerCache();
+        syncHistoryFromServer(data.items || [], state.cug);
+        renderHistory();
+        if (showToastOnSuccess) {
+          var n = (data.items || []).length;
+          showToast('History updated — ' + n + ' record(s) from server.', 'success', 4000);
+        }
+        return data;
+      })
+      .catch(function () {
+        showToast('Could not refresh history. Check connection and API URL.', 'error', 4500);
+        throw new Error('refresh failed');
+      })
+      .finally(function () {
+        if (btn) btn.disabled = false;
+      });
+  }
+
   function rememberServerImei(barcode) {
     var k = normDigits(barcode);
     if (k) {
@@ -706,6 +796,7 @@
       String(d.getDate()).padStart(2, '0');
     items.forEach(function (barcode) {
       state.history.push({
+        cug: state.cug,
         dayKey: dayKey,
         imei: String(barcode).trim(),
         uploadedAt: uploadedAtIso
@@ -727,15 +818,18 @@
   function renderHistory() {
     var body = $('history-body');
     if (!body) return;
-    if (!state.history.length) {
-      body.innerHTML = '<p class="history-empty">No history yet. Submitted scans appear here.</p>';
+    var rows = historyForCurrentCug();
+    if (!rows.length) {
+      body.innerHTML =
+        '<p class="history-empty">No signed devices yet. Save your CUG to sync from the server, or submit scans from the scanner.</p>';
       return;
     }
     var byDay = {};
-    state.history.forEach(function (row) {
-      var k = row.dayKey || '';
+    rows.forEach(function (row) {
+      var k = row.dayKey || dayKeyFromIso(row.uploadedAt) || '';
+      if (!k) return;
       if (!byDay[k]) byDay[k] = [];
-      byDay[k].push(row.imei);
+      byDay[k].push(row);
     });
     var days = Object.keys(byDay).sort(function (a, b) {
       return b.localeCompare(a);
@@ -748,11 +842,15 @@
       h.className = 'history-day__title';
       h.textContent = formatHistoryDayTitle(day);
       var ol = document.createElement('ol');
-      byDay[day].forEach(function (imei) {
-        var li = document.createElement('li');
-        li.textContent = imei;
-        ol.appendChild(li);
-      });
+      byDay[day]
+        .sort(function (a, b) {
+          return new Date(b.uploadedAt) - new Date(a.uploadedAt);
+        })
+        .forEach(function (row) {
+          var li = document.createElement('li');
+          li.textContent = row.imei;
+          ol.appendChild(li);
+        });
       section.appendChild(h);
       section.appendChild(ol);
       body.appendChild(section);
@@ -942,6 +1040,10 @@
       tryAutoStartCamera();
     });
 
+    $('history-refresh').addEventListener('click', function () {
+      refreshHistoryFromServer(true);
+    });
+
     $('settings-back').addEventListener('click', function () {
       showView('scan');
       tryAutoStartCamera();
@@ -960,15 +1062,16 @@
       saveCug(v);
       state.apiBase = getApiBase();
 
-      fetchScannerDeviceRecords()
+      refreshHistoryFromServer(false)
         .then(function (data) {
-          state.serverImeiKeys = {};
-          mergeServerImeisFromItems(data.items || []);
-          persistServerCache();
-          showToast('CUG saved — synced ' + (data.count || 0) + ' server record(s).', 'success', 4000);
+          showToast(
+            'CUG saved — ' + (data.count || 0) + ' record(s) synced to History.',
+            'success',
+            4000
+          );
         })
         .catch(function () {
-          showToast('CUG saved (server sync failed — will retry on next open).', 'info', 5000);
+          showToast('CUG saved (server sync failed — use History refresh when online).', 'info', 5000);
         })
         .finally(function () {
           showView('scan');
@@ -1012,6 +1115,7 @@
     state.sessionScans = loadSession();
     state.history = loadHistory();
     state.outbox = loadOutbox();
+    migrateHistoryCug();
 
     var cache = loadServerCache();
     if (cache.cug === state.cug && cache.keys) {
@@ -1036,12 +1140,7 @@
     flushOutbox();
 
     if (state.cug && navigator.onLine) {
-      fetchScannerDeviceRecords()
-        .then(function (data) {
-          mergeServerImeisFromItems(data.items || []);
-          persistServerCache();
-        })
-        .catch(function () {});
+      refreshHistoryFromServer(false).catch(function () {});
     }
   }
 

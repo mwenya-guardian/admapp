@@ -65,9 +65,12 @@
 
       <!-- History view -->
       <main id="view-history" class="view view--hidden" aria-label="History">
-        <div class="subnav">
+        <div class="subnav subnav--history">
           <button type="button" id="history-back" class="btn btn-ghost btn--back">← Back</button>
-          <p class="subnav__cug">CUG <strong id="history-cug">—</strong></p>
+          <div class="subnav__row">
+            <p class="subnav__cug">CUG <strong id="history-cug">—</strong></p>
+            <button type="button" id="history-refresh" class="btn btn-secondary btn--compact">Refresh</button>
+          </div>
         </div>
         <div id="history-body" class="history-body"></div>
       </main>
