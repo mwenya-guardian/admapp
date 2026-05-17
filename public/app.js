@@ -1,39 +1,82 @@
 (function () {
   'use strict';
 
-  var USERNAME_KEY = 'adm_pwa_username';
-  var PENDING_KEY = 'adm_pending_v2';
-  var UPLOADED_KEY = 'adm_uploaded_log_v2';
+  var LEGACY_USERNAME_KEY = 'adm_pwa_username';
+  var CUG_KEY = 'adm_pwa_cug';
+  var API_BASE_KEY = 'adm_api_base';
+  var SESSION_KEY = 'adm_session_scans_v1';
+  var SERVER_IMEI_CACHE_KEY = 'adm_server_imeis_cache_v1';
+  var HISTORY_KEY = 'adm_history_v1';
+  var OUTBOX_KEY = 'adm_outbox_v1';
+
+  var DEFAULT_API_BASE = 'https://adm-backend-s1wt.onrender.com/api';
+
   var SCAN_CAMERA = { facingMode: 'environment' };
-  var SCAN_CONFIG = { fps: 12, qrbox: { width: 280, height: 200 } };
+  var SCAN_CONFIG = { fps: 12, qrbox: { width: 240, height: 168 } };
 
   var state = {
     scanner: null,
     scanning: false,
     lastCode: '',
     lastCodeAt: 0,
-    username: '',
-    pending: [],
-    uploaded: [],
-    panelMode: null,
-    uploading: false,
     scanChoiceOpen: false,
-    lastSavedId: null
+    cug: '',
+    apiBase: DEFAULT_API_BASE,
+    sessionScans: [],
+    serverImeiKeys: {},
+    history: [],
+    outbox: [],
+    submitting: false
   };
 
   function $(id) {
     return document.getElementById(id);
   }
 
-  function todayKey() {
-    var d = new Date();
-    return (
-      d.getFullYear() +
-      '-' +
-      String(d.getMonth() + 1).padStart(2, '0') +
-      '-' +
-      String(d.getDate()).padStart(2, '0')
-    );
+  function getApiBase() {
+    try {
+      var u = (localStorage.getItem(API_BASE_KEY) || '').trim();
+      if (u) return u.replace(/\/$/, '');
+    } catch (e) {}
+    return DEFAULT_API_BASE;
+  }
+
+  function setApiBase(value) {
+    var v = String(value || '').trim().replace(/\/$/, '');
+    if (!v) {
+      localStorage.removeItem(API_BASE_KEY);
+      state.apiBase = DEFAULT_API_BASE;
+      return;
+    }
+    localStorage.setItem(API_BASE_KEY, v);
+    state.apiBase = v;
+  }
+
+  function loadCug() {
+    try {
+      var c = (localStorage.getItem(CUG_KEY) || '').trim();
+      if (c) return c;
+      var legacy = (localStorage.getItem(LEGACY_USERNAME_KEY) || '').trim();
+      if (legacy && validateCug(legacy)) {
+        localStorage.setItem(CUG_KEY, legacy);
+        return legacy;
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function saveCug(value) {
+    localStorage.setItem(CUG_KEY, value.trim());
+    state.cug = value.trim();
+  }
+
+  function validateCug(v) {
+    var t = String(v || '').trim();
+    return t.length === 9 && /^[0-9]+$/.test(t);
+  }
+
+  function normDigits(s) {
+    return String(s || '').replace(/\D/g, '');
   }
 
   function dayKeyFromIso(iso) {
@@ -55,10 +98,10 @@
   function formatWhen(iso) {
     try {
       var d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso);
-      return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+      if (isNaN(d.getTime())) return String(iso || '');
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
     } catch (e) {
-      return String(iso);
+      return String(iso || '');
     }
   }
 
@@ -69,21 +112,9 @@
     return String(Date.now()) + '-' + String(Math.random()).slice(2, 10);
   }
 
-  function loadUsername() {
+  function loadSession() {
     try {
-      return (localStorage.getItem(USERNAME_KEY) || '').trim();
-    } catch (e) {
-      return '';
-    }
-  }
-
-  function saveUsername(value) {
-    localStorage.setItem(USERNAME_KEY, value.trim());
-  }
-
-  function loadPending() {
-    try {
-      var raw = localStorage.getItem(PENDING_KEY);
+      var raw = localStorage.getItem(SESSION_KEY);
       if (!raw) return [];
       var arr = JSON.parse(raw);
       return Array.isArray(arr) ? arr : [];
@@ -92,13 +123,32 @@
     }
   }
 
-  function persistPending() {
-    localStorage.setItem(PENDING_KEY, JSON.stringify(state.pending));
+  function persistSession() {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(state.sessionScans));
   }
 
-  function loadUploaded() {
+  function loadServerCache() {
     try {
-      var raw = localStorage.getItem(UPLOADED_KEY);
+      var raw = localStorage.getItem(SERVER_IMEI_CACHE_KEY);
+      if (!raw) return { cug: '', keys: {} };
+      var o = JSON.parse(raw);
+      if (!o || typeof o.keys !== 'object') return { cug: '', keys: {} };
+      return { cug: String(o.cug || ''), keys: o.keys || {} };
+    } catch (e) {
+      return { cug: '', keys: {} };
+    }
+  }
+
+  function persistServerCache() {
+    localStorage.setItem(
+      SERVER_IMEI_CACHE_KEY,
+      JSON.stringify({ cug: state.cug, keys: state.serverImeiKeys })
+    );
+  }
+
+  function loadHistory() {
+    try {
+      var raw = localStorage.getItem(HISTORY_KEY);
       if (!raw) return [];
       var arr = JSON.parse(raw);
       return Array.isArray(arr) ? arr : [];
@@ -107,45 +157,209 @@
     }
   }
 
-  function persistUploaded() {
-    localStorage.setItem(UPLOADED_KEY, JSON.stringify(state.uploaded));
+  function persistHistory() {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history));
   }
 
-  function countUploadedToday() {
-    var tk = todayKey();
-    return state.uploaded.filter(function (u) {
-      return dayKeyFromIso(u.uploadedAt) === tk;
-    }).length;
+  function loadOutbox() {
+    try {
+      var raw = localStorage.getItem(OUTBOX_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
   }
 
-  function renderStats() {
-    $('stat-today').textContent = String(countUploadedToday());
-    $('stat-all').textContent = String(state.uploaded.length);
-    $('stat-pending').textContent = String(state.pending.length);
+  function persistOutbox() {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(state.outbox));
+  }
+
+  function mergeServerImeisFromItems(items) {
+    (items || []).forEach(function (row) {
+      var imei = String((row && row.imei) || '').trim();
+      var k = normDigits(imei);
+      if (k) state.serverImeiKeys[k] = true;
+    });
+  }
+
+  function rememberServerImei(barcode) {
+    var k = normDigits(barcode);
+    if (k) {
+      state.serverImeiKeys[k] = true;
+      persistServerCache();
+    }
+  }
+
+  function sessionHasNorm(norm) {
+    return state.sessionScans.some(function (p) {
+      return normDigits(p.barcode) === norm;
+    });
+  }
+
+  function serverHasNorm(norm) {
+    return !!state.serverImeiKeys[norm];
+  }
+
+  function closeMenu() {
+    var d = $('topbar-menu');
+    if (d && d.tagName === 'DETAILS') d.open = false;
+  }
+
+  function showView(name) {
+    closeMenu();
+    var scan = $('view-scan');
+    var hist = $('view-history');
+    var sett = $('view-settings');
+    if (scan) scan.classList.toggle('view--hidden', name !== 'scan');
+    if (hist) hist.classList.toggle('view--hidden', name !== 'history');
+    if (sett) sett.classList.toggle('view--hidden', name !== 'settings');
+
+    var back = $('settings-back');
+    if (back) {
+      back.classList.toggle('hidden', name !== 'settings' || !state.cug);
+    }
+
+    if (name === 'history') {
+      $('history-cug').textContent = state.cug || '—';
+      renderHistory();
+    }
+    if (name === 'settings') {
+      $('settings-cug-input').value = state.cug;
+      $('settings-api-input').value =
+        state.apiBase === DEFAULT_API_BASE ? '' : state.apiBase;
+    }
   }
 
   function setStatus(message, kind) {
     var el = $('status');
+    if (!el) return;
     el.textContent = message || '';
     el.classList.remove('error', 'success');
     if (kind) el.classList.add(kind);
   }
 
-  /* ── Toast notifications ───────────────────────────────────────── */
+  function updateConnPill() {
+    var el = $('conn-pill');
+    if (!el) return;
+    var online = typeof navigator !== 'undefined' && navigator.onLine;
+    el.textContent = online ? 'Online' : 'Offline';
+    el.classList.toggle('conn-pill--online', online);
+    el.classList.toggle('conn-pill--offline', !online);
+  }
+
+  function getOutboxForCurrentCug() {
+    if (!state.cug) return [];
+    return state.outbox.filter(function (job) {
+      return String(job.cug || '').trim() === state.cug;
+    });
+  }
+
+  function updateOutboxHint() {
+    var el = $('outbox-hint');
+    if (!el) return;
+    var pending = getOutboxForCurrentCug();
+    var n = pending.length;
+    if (n === 0) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      el.removeAttribute('aria-label');
+      return;
+    }
+    el.classList.remove('hidden');
+    var label =
+      n === 1
+        ? '1 scan waiting to sync — tap to view signed date'
+        : n + ' scans waiting to sync — tap to view signed dates';
+    el.textContent = label;
+    el.setAttribute('aria-label', label);
+  }
+
+  function renderOutboxPanel() {
+    var body = $('outbox-panel-body');
+    if (!body) return;
+    var pending = getOutboxForCurrentCug();
+    if (!pending.length) {
+      body.innerHTML = '<p class="history-empty">Nothing waiting to sync.</p>';
+      return;
+    }
+
+    var byDay = {};
+    pending.forEach(function (job) {
+      var signedIso = job.scannedAt || job.createdAt || '';
+      var day = dayKeyFromIso(signedIso) || 'Unknown date';
+      if (!byDay[day]) byDay[day] = [];
+      byDay[day].push({
+        imei: job.imei,
+        signedIso: signedIso
+      });
+    });
+
+    var days = Object.keys(byDay).sort(function (a, b) {
+      if (a === 'Unknown date') return 1;
+      if (b === 'Unknown date') return -1;
+      return b.localeCompare(a);
+    });
+
+    body.innerHTML = '';
+    days.forEach(function (day) {
+      var section = document.createElement('section');
+      section.className = 'history-day';
+      var h = document.createElement('h3');
+      h.className = 'history-day__title';
+      h.textContent = day === 'Unknown date' ? day : formatHistoryDayTitle(day);
+      var ol = document.createElement('ol');
+      byDay[day]
+        .sort(function (a, b) {
+          return new Date(b.signedIso) - new Date(a.signedIso);
+        })
+        .forEach(function (row) {
+          var li = document.createElement('li');
+          var wrap = document.createElement('div');
+          wrap.className = 'outbox-row';
+          var code = document.createElement('span');
+          code.className = 'outbox-row__imei';
+          code.textContent = row.imei;
+          var when = document.createElement('span');
+          when.className = 'outbox-row__when';
+          when.textContent = 'Signed ' + formatWhen(row.signedIso);
+          wrap.appendChild(code);
+          wrap.appendChild(when);
+          li.appendChild(wrap);
+          ol.appendChild(li);
+        });
+      section.appendChild(h);
+      section.appendChild(ol);
+      body.appendChild(section);
+    });
+  }
+
+  function openOutboxPanel() {
+    if (!getOutboxForCurrentCug().length) return;
+    renderOutboxPanel();
+    $('outbox-panel-backdrop').classList.remove('hidden');
+  }
+
+  function closeOutboxPanel() {
+    $('outbox-panel-backdrop').classList.add('hidden');
+  }
+
+  /* ── Toast (position: top via CSS) ───────────────────────────── */
   var _toastTimer = null;
   function showToast(message, kind, duration) {
     var container = $('toast-container');
     if (!container) return;
-    // Clear any existing toast
-    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
-    // Remove old toasts immediately
+    if (_toastTimer) {
+      clearTimeout(_toastTimer);
+      _toastTimer = null;
+    }
     var old = container.querySelector('.toast');
-    if (old) { old.remove(); }
+    if (old) old.remove();
 
     var toast = document.createElement('div');
     toast.className = 'toast toast--' + (kind || 'info');
     toast.setAttribute('role', 'alert');
-    toast.setAttribute('aria-live', 'assertive');
 
     var icon = document.createElement('span');
     icon.className = 'toast-icon';
@@ -161,7 +375,9 @@
     close.textContent = '×';
     close.addEventListener('click', function () {
       toast.classList.add('toast--out');
-      setTimeout(function () { toast.remove(); }, 300);
+      setTimeout(function () {
+        toast.remove();
+      }, 250);
     });
 
     toast.appendChild(icon);
@@ -169,80 +385,22 @@
     toast.appendChild(close);
     container.appendChild(toast);
 
-    // Animate in
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         toast.classList.add('toast--in');
       });
     });
 
-    var ms = duration || (kind === 'error' ? 6000 : 4000);
+    var ms = duration || (kind === 'error' ? 5500 : 3200);
     _toastTimer = setTimeout(function () {
       toast.classList.add('toast--out');
-      setTimeout(function () { if (toast.parentNode) toast.remove(); }, 300);
+      setTimeout(function () {
+        if (toast.parentNode) toast.remove();
+      }, 280);
     }, ms);
   }
 
-  function showUserPill() {
-    var pill = $('user-pill');
-    if (!state.username) {
-      pill.classList.add('hidden');
-      return;
-    }
-    pill.textContent = 'Number: ' + state.username;
-    pill.classList.remove('hidden');
-  }
-
-  function openModal(allowCancel) {
-    var backdrop = $('modal-backdrop');
-    var cancel = $('modal-cancel');
-    $('username-input').value = state.username;
-    backdrop.classList.remove('hidden');
-    if (allowCancel) {
-      cancel.classList.remove('hidden');
-    } else {
-      cancel.classList.add('hidden');
-    }
-    setTimeout(function () {
-      $('username-input').focus();
-    }, 50);
-  }
-
-  function closeModal() {
-    $('modal-backdrop').classList.add('hidden');
-  }
-
-  function validateUsername(v) {
-    var t = String(v || '').trim();
-    return t.length === 9 && /^[0-9]+$/.test(t);
-  }
-
-  function ensureAuth() {
-    return firebase
-      .auth()
-      .signInAnonymously()
-      .catch(function (err) {
-        console.error(err);
-        setStatus('Sign-in failed. Check Firebase Auth (Anonymous) is enabled.', 'error');
-        throw err;
-      });
-  }
-
-  function ensureFirestorePersistence() {
-    return firebase
-      .firestore()
-      .enablePersistence({ synchronizeTabs: true })
-      .catch(function (err) {
-        if (err.code === 'failed-precondition') {
-          console.warn('Persistence: multi-tab');
-        } else if (err.code === 'unimplemented') {
-          console.warn('Persistence not available');
-        } else {
-          console.warn(err);
-        }
-      });
-  }
-
+  /* ── Scanner engine (preserve behavior) ───────────────────────── */
   function buildScanner() {
     try {
       if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
@@ -279,58 +437,80 @@
     }
   }
 
-  function enqueuePendingScan(barcode) {
-    var code = String(barcode || '').trim();
-    if (!code) return false;
-    // Duplicate check — already in pending list?
-    var alreadyPending = state.pending.some(function (p) {
-      return p.barcode === code;
-    });
-    if (alreadyPending) {
-      showToast('\u26a0\ufe0f Duplicate — "' + code + '" is already in pending.', 'error', 4000);
-      return false; // signal: not saved
+  function startScanner() {
+    if (state.scanning) return;
+    if (!state.cug) {
+      setStatus('Save your CUG in Settings first.', 'error');
+      return;
     }
-    var scannedAt = new Date().toISOString();
-    state.lastSavedId = null; // clear before push
-    var entry = {
-      id: newLocalId(),
-      barcode: code,
-      scannedAt: scannedAt
-    };
-    state.pending.push(entry);
-    state.lastSavedId = entry.id; // track so re-entry btn can remove it
-    persistPending();
-    renderStats();
-    return true; // signal: saved
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Camera is not available in this browser.', 'error');
+      return;
+    }
+    setStatus('Starting camera…');
+    clearReaderDom();
+
+    var readerWrap = $('reader-wrap');
+    readerWrap.classList.remove('hidden');
+    readerWrap.setAttribute('aria-hidden', 'false');
+
+    state.scanner = buildScanner();
+    state.scanner
+      .start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {})
+      .then(function () {
+        state.scanning = true;
+        setStatus('Point the camera at a barcode or QR code.');
+        applyReaderVideoAttrs();
+      })
+      .catch(function (err) {
+        console.error(err);
+        setStatus(err.message || 'Could not start camera.', 'error');
+        try {
+          if (state.scanner) state.scanner.clear();
+        } catch (e) {}
+        state.scanner = null;
+        state.scanning = false;
+        clearReaderDom();
+        readerWrap.classList.add('hidden');
+        readerWrap.setAttribute('aria-hidden', 'true');
+      });
   }
 
-  function showScanChoiceSheet(code, isDuplicate) {
-    $('scan-choice-code').textContent = code;
-    var dupEl = $('scan-choice-dup');
-    var descEl = $('scan-choice-desc');
-    if (isDuplicate) {
-      dupEl.classList.remove('hidden');
-      descEl.classList.add('hidden');
-    } else {
-      dupEl.classList.add('hidden');
-      descEl.classList.remove('hidden');
+  function stopScanner() {
+    if (!state.scanner || !state.scanning) {
+      return Promise.resolve();
     }
-    $('scan-choice-backdrop').classList.remove('hidden');
-    setTimeout(function () {
-      $('btn-scan-next').focus();
-    }, 50);
-  }
-
-  function hideScanChoiceSheet() {
-    state.scanChoiceOpen = false;
-    $('scan-choice-backdrop').classList.add('hidden');
+    var readerWrap = $('reader-wrap');
+    return state.scanner
+      .stop()
+      .then(function () {
+        try {
+          state.scanner.clear();
+        } catch (e) {}
+        state.scanner = null;
+        state.scanning = false;
+        clearReaderDom();
+        if (readerWrap) {
+          readerWrap.classList.add('hidden');
+          readerWrap.setAttribute('aria-hidden', 'true');
+        }
+        setStatus('Camera stopped.');
+      })
+      .catch(function (err) {
+        console.error(err);
+        state.scanner = null;
+        state.scanning = false;
+        clearReaderDom();
+        if (readerWrap) {
+          readerWrap.classList.add('hidden');
+          readerWrap.setAttribute('aria-hidden', 'true');
+        }
+      });
   }
 
   function resumeScannerForNextScan() {
     if (!state.scanner || !state.scanning) {
       state.scanChoiceOpen = false;
-      $('scan-choice-backdrop').classList.add('hidden');
-      setStatus('Camera was stopped. Tap start scanning again.', 'error');
       return;
     }
     setStatus('Restarting camera…');
@@ -357,240 +537,100 @@
         state.scanner = null;
         state.scanning = false;
         clearReaderDom();
-        $('reader-wrap').classList.add('hidden');
-        $('reader-wrap').setAttribute('aria-hidden', 'true');
-        $('btn-stop').classList.add('hidden');
-        $('btn-camera').disabled = false;
-        setStatus(err.message || 'Could not restart camera. Tap start scanning.', 'error');
-      });
-  }
-
-  var API_ENDPOINT = 'https://adm-backend-s1wt.onrender.com/api/imeis/device-records';
-
-  function writeImeiToApi(pendingItem) {
-    var scannedDate = new Date(pendingItem.scannedAt);
-    if (isNaN(scannedDate.getTime())) scannedDate = new Date();
-    var payload = {
-      cug: String(state.username || '').trim(),
-      imei: String(pendingItem.barcode).trim(),
-      timestamp: scannedDate.toISOString()
-    };
-    return fetch(API_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(function (res) {
-      if (!res.ok) {
-        return res.text().then(function (msg) {
-          throw new Error('Server error ' + res.status + ': ' + msg);
-        });
-      }
-      return res.json().catch(function () { return {}; });
-    });
-  }
-
-  function removePendingById(id) {
-    state.pending = state.pending.filter(function (p) {
-      return p.id !== id;
-    });
-    persistPending();
-  }
-
-  function appendUploadedRecord(pendingItem, uploadedAtIso, firestoreId) {
-    state.uploaded.push({
-      id: pendingItem.id,
-      barcode: pendingItem.barcode,
-      scannedAt: pendingItem.scannedAt,
-      uploadedAt: uploadedAtIso,
-      firestoreId: firestoreId || ''
-    });
-    persistUploaded();
-  }
-
-  function openListPanel(mode) {
-    state.panelMode = mode;
-    var title = $('list-panel-title');
-    var sub = $('list-panel-sub');
-    var footer = $('list-panel-footer');
-    sub.classList.add('hidden');
-    sub.textContent = '';
-
-    if (mode === 'pending') {
-      title.textContent = 'Pending upload';
-      sub.textContent = 'Select one or more, then upload to Firestore (imeis).';
-      sub.classList.remove('hidden');
-      footer.classList.remove('hidden');
-    } else if (mode === 'today') {
-      title.textContent = 'Uploaded today';
-      footer.classList.add('hidden');
-    } else {
-      title.textContent = 'Uploaded (all time)';
-      footer.classList.add('hidden');
-    }
-
-    $('list-panel-backdrop').classList.remove('hidden');
-    renderListPanelBody();
-  }
-
-  function closeListPanel() {
-    state.panelMode = null;
-    $('list-panel-backdrop').classList.add('hidden');
-  }
-
-  function renderListPanelBody() {
-    var body = $('list-panel-body');
-    body.innerHTML = '';
-    var mode = state.panelMode;
-
-    if (mode === 'pending') {
-      if (!state.pending.length) {
-        body.innerHTML = '<p class="list-empty">Nothing pending. Scans go here until you upload.</p>';
-        return;
-      }
-      state.pending.forEach(function (item) {
-        var row = document.createElement('label');
-        row.className = 'list-row';
-        row.setAttribute('for', 'cb-' + item.id);
-        var cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.id = 'cb-' + item.id;
-        cb.setAttribute('data-id', item.id);
-        var main = document.createElement('div');
-        main.className = 'list-row-main';
-        var code = document.createElement('div');
-        code.className = 'list-row-code';
-        code.textContent = item.barcode;
-        var meta = document.createElement('div');
-        meta.className = 'list-row-meta';
-        meta.textContent = 'Scanned ' + formatWhen(item.scannedAt);
-        main.appendChild(code);
-        main.appendChild(meta);
-        row.appendChild(cb);
-        row.appendChild(main);
-        body.appendChild(row);
-      });
-      return;
-    }
-
-    var list =
-      mode === 'today'
-        ? state.uploaded.filter(function (u) {
-            return dayKeyFromIso(u.uploadedAt) === todayKey();
-          })
-        : state.uploaded.slice();
-
-    list.sort(function (a, b) {
-      return new Date(b.uploadedAt) - new Date(a.uploadedAt);
-    });
-
-    if (!list.length) {
-      body.innerHTML =
-        '<p class="list-empty">' +
-        (mode === 'today' ? 'No uploads yet today.' : 'No uploads recorded yet.') +
-        '</p>';
-      return;
-    }
-
-    list.forEach(function (item) {
-      var row = document.createElement('div');
-      row.className = 'list-row';
-      var main = document.createElement('div');
-      main.className = 'list-row-main';
-      var code = document.createElement('div');
-      code.className = 'list-row-code';
-      code.textContent = item.barcode;
-      var meta = document.createElement('div');
-      meta.className = 'list-row-meta';
-      meta.textContent =
-        'Uploaded ' + formatWhen(item.uploadedAt) + ' · scanned ' + formatWhen(item.scannedAt);
-      main.appendChild(code);
-      main.appendChild(meta);
-      row.appendChild(main);
-      body.appendChild(row);
-    });
-  }
-
-  function getSelectedPendingIds() {
-    var body = $('list-panel-body');
-    var boxes = body.querySelectorAll('input[type="checkbox"]:checked');
-    return Array.prototype.map.call(boxes, function (cb) {
-      return cb.getAttribute('data-id');
-    });
-  }
-
-  function uploadSelectedPending() {
-    if (state.uploading) return;
-    if (!state.username) {
-      setStatus('Save your number first.', 'error');
-      return;
-    }
-    var ids = getSelectedPendingIds();
-    if (!ids.length) {
-      setStatus('Select at least one pending item.', 'error');
-      return;
-    }
-
-    state.uploading = true;
-    var btn = $('list-upload');
-    btn.disabled = true;
-    setStatus('Uploading…');
-
-    var failed = [];
-
-    function uploadNext(index) {
-      if (index >= ids.length) {
-        state.uploading = false;
-        btn.disabled = false;
-        renderStats();
-        renderListPanelBody();
-        if (failed.length) {
-          showToast(
-            'Failed to upload ' + failed.length + ' item(s): ' + failed.join(', '),
-            'error'
-          );
-          setStatus('Some uploads failed (' + failed.length + ').', 'error');
-        } else {
-          showToast('Upload complete! ' + ids.length + ' record(s) saved.', 'success');
-          setStatus('Upload complete.', 'success');
+        var readerWrap = $('reader-wrap');
+        if (readerWrap) {
+          readerWrap.classList.add('hidden');
+          readerWrap.setAttribute('aria-hidden', 'true');
         }
-        return;
-      }
-
-      var id = ids[index];
-      var item = state.pending.find(function (p) {
-        return p.id === id;
+        setStatus(err.message || 'Could not restart camera. Use Retry camera.', 'error');
       });
-      if (!item) {
-        uploadNext(index + 1);
-        return;
-      }
-
-      var uploadedAt = new Date();
-      writeImeiToApi(item)
-        .then(function (resp) {
-          var serverId = (resp && (resp._id || resp.id)) || '';
-          removePendingById(item.id);
-          appendUploadedRecord(item, uploadedAt.toISOString(), serverId);
-          showToast('Saved: ' + item.barcode, 'success', 2500);
-          uploadNext(index + 1);
-        })
-        .catch(function (err) {
-          console.error(err);
-          failed.push(item.barcode);
-          showToast('Error saving ' + item.barcode + ': ' + (err.message || 'Network error'), 'error', 5000);
-          uploadNext(index + 1);
-        });
-    }
-
-    uploadNext(0);
   }
 
-  function selectAllPendingCheckboxes() {
-    var body = $('list-panel-body');
-    var boxes = body.querySelectorAll('input[type="checkbox"]');
-    Array.prototype.forEach.call(boxes, function (cb) {
-      cb.checked = true;
+  function checkRecordOnline(norm, rawBarcode) {
+    var base = state.apiBase;
+    var q =
+      base +
+      '/imeis/scanner/check-record?cug=' +
+      encodeURIComponent(state.cug) +
+      '&imei=' +
+      encodeURIComponent(rawBarcode);
+    return fetch(q, { method: 'GET' }).then(function (res) {
+      if (!res.ok) throw new Error('check failed');
+      return res.json();
     });
+  }
+
+  function fetchScannerDeviceRecords() {
+    var base = state.apiBase;
+    var url = base + '/imeis/scanner/device-records?cug=' + encodeURIComponent(state.cug);
+    return fetch(url, { method: 'GET' }).then(function (res) {
+      if (!res.ok) throw new Error('sync failed');
+      return res.json();
+    });
+  }
+
+  function handleDecodedScan(rawText) {
+    var text = String(rawText || '').trim();
+    var norm = normDigits(text);
+    if (!norm) {
+      showToast('Invalid code', 'error', 3000);
+      resumeScannerForNextScan();
+      return;
+    }
+
+    if (sessionHasNorm(norm)) {
+      showToast('Already scanned', 'info', 2800);
+      resumeScannerForNextScan();
+      return;
+    }
+
+    if (serverHasNorm(norm)) {
+      showToast('This device has already been signed for', 'error', 4000);
+      resumeScannerForNextScan();
+      return;
+    }
+
+    if (navigator.onLine) {
+      checkRecordOnline(norm, text)
+        .then(function (data) {
+          if (data && data.exists) {
+            rememberServerImei(text);
+            showToast('This device has already been signed for', 'error', 4000);
+            return;
+          }
+          state.sessionScans.push({
+            id: newLocalId(),
+            barcode: text,
+            scannedAt: new Date().toISOString()
+          });
+          persistSession();
+          renderSessionList();
+          showToast('IMEI added', 'success', 2600);
+        })
+        .catch(function () {
+          state.sessionScans.push({
+            id: newLocalId(),
+            barcode: text,
+            scannedAt: new Date().toISOString()
+          });
+          persistSession();
+          renderSessionList();
+          showToast('IMEI added', 'success', 2600);
+        })
+        .finally(function () {
+          resumeScannerForNextScan();
+        });
+    } else {
+      state.sessionScans.push({
+        id: newLocalId(),
+        barcode: text,
+        scannedAt: new Date().toISOString()
+      });
+      persistSession();
+      renderSessionList();
+      showToast('IMEI added', 'success', 2600);
+      resumeScannerForNextScan();
+    }
   }
 
   function onScanSuccess(decodedText) {
@@ -615,73 +655,269 @@
       }
     }
 
-    var saved = enqueuePendingScan(text);
-    showScanChoiceSheet(text, !saved); // pass isDuplicate flag
+    handleDecodedScan(text);
   }
 
-  function startScanner() {
-    if (state.scanning) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera is not available in this browser.', 'error');
+  function renderSessionList() {
+    var list = $('session-list');
+    var empty = $('session-empty');
+    var submit = $('btn-submit');
+    if (!list || !empty) return;
+    list.innerHTML = '';
+    state.sessionScans.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'session-row';
+      row.setAttribute('role', 'listitem');
+
+      var code = document.createElement('div');
+      code.className = 'session-row__code';
+      code.textContent = item.barcode;
+
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'session-row__remove';
+      rm.setAttribute('aria-label', 'Remove ' + item.barcode);
+      rm.textContent = '×';
+      rm.addEventListener('click', function () {
+        state.sessionScans = state.sessionScans.filter(function (p) {
+          return p.id !== item.id;
+        });
+        persistSession();
+        renderSessionList();
+        showToast('Removed from list', 'info', 2000);
+      });
+
+      row.appendChild(code);
+      row.appendChild(rm);
+      list.appendChild(row);
+    });
+
+    empty.classList.toggle('hidden', state.sessionScans.length > 0);
+    if (submit) submit.disabled = state.sessionScans.length === 0 || state.submitting;
+  }
+
+  function appendHistoryEntries(items, uploadedAtIso) {
+    var d = new Date(uploadedAtIso);
+    var dayKey =
+      d.getFullYear() +
+      '-' +
+      String(d.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      String(d.getDate()).padStart(2, '0');
+    items.forEach(function (barcode) {
+      state.history.push({
+        dayKey: dayKey,
+        imei: String(barcode).trim(),
+        uploadedAt: uploadedAtIso
+      });
+    });
+    persistHistory();
+  }
+
+  function formatHistoryDayTitle(dayKey) {
+    try {
+      var parts = dayKey.split('-');
+      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    } catch (e) {
+      return dayKey;
+    }
+  }
+
+  function renderHistory() {
+    var body = $('history-body');
+    if (!body) return;
+    if (!state.history.length) {
+      body.innerHTML = '<p class="history-empty">No history yet. Submitted scans appear here.</p>';
       return;
     }
-    setStatus('Starting camera…');
-    clearReaderDom();
-    
-    // Unhide the wrapper BEFORE starting the scanner so the library can calculate dimensions
-    $('reader-wrap').classList.remove('hidden');
-    $('reader-wrap').setAttribute('aria-hidden', 'false');
-    
-    state.scanner = buildScanner();
-    state.scanner
-      .start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {})
-      .then(function () {
-        state.scanning = true;
-        $('btn-stop').classList.remove('hidden');
-        $('btn-camera').disabled = true;
-        setStatus('Point the camera at a barcode or QR code.');
-        applyReaderVideoAttrs();
-      })
-      .catch(function (err) {
-        console.error(err);
-        setStatus(err.message || 'Could not start camera.', 'error');
-        try {
-          if (state.scanner) state.scanner.clear();
-        } catch (e) {}
-        state.scanner = null;
-        state.scanning = false;
-        clearReaderDom();
-        $('reader-wrap').classList.add('hidden');
-        $('reader-wrap').setAttribute('aria-hidden', 'true');
+    var byDay = {};
+    state.history.forEach(function (row) {
+      var k = row.dayKey || '';
+      if (!byDay[k]) byDay[k] = [];
+      byDay[k].push(row.imei);
+    });
+    var days = Object.keys(byDay).sort(function (a, b) {
+      return b.localeCompare(a);
+    });
+    body.innerHTML = '';
+    days.forEach(function (day) {
+      var section = document.createElement('section');
+      section.className = 'history-day';
+      var h = document.createElement('h3');
+      h.className = 'history-day__title';
+      h.textContent = formatHistoryDayTitle(day);
+      var ol = document.createElement('ol');
+      byDay[day].forEach(function (imei) {
+        var li = document.createElement('li');
+        li.textContent = imei;
+        ol.appendChild(li);
       });
+      section.appendChild(h);
+      section.appendChild(ol);
+      body.appendChild(section);
+    });
   }
 
-  function stopScanner() {
-    if (!state.scanner || !state.scanning) {
-      return Promise.resolve();
-    }
-    return state.scanner
-      .stop()
-      .then(function () {
-        try {
-          state.scanner.clear();
-        } catch (e) {}
-        state.scanner = null;
-        state.scanning = false;
-        clearReaderDom();
-        $('reader-wrap').classList.add('hidden');
-        $('reader-wrap').setAttribute('aria-hidden', 'true');
-        $('btn-stop').classList.add('hidden');
-        $('btn-camera').disabled = false;
-        setStatus('Camera stopped.');
-      })
-      .catch(function (err) {
-        console.error(err);
-        state.scanner = null;
-        state.scanning = false;
-        clearReaderDom();
-        $('btn-camera').disabled = false;
+  function writeImeiToApi(pendingItem) {
+    var scannedDate = new Date(pendingItem.scannedAt);
+    if (isNaN(scannedDate.getTime())) scannedDate = new Date();
+    var payload = {
+      cug: String(state.cug || '').trim(),
+      imei: String(pendingItem.barcode).trim(),
+      timestamp: scannedDate.toISOString()
+    };
+    return fetch(state.apiBase + '/imeis/device-records', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      if (res.status === 409) {
+        return { _conflict: true, barcode: payload.imei };
+      }
+      if (!res.ok) {
+        return res.text().then(function (msg) {
+          throw new Error('Server error ' + res.status + ': ' + msg);
+        });
+      }
+      return res.json().catch(function () {
+        return {};
       });
+    });
+  }
+
+  function openSubmitModal() {
+    if (!state.sessionScans.length) return;
+    $('submit-confirm-backdrop').classList.remove('hidden');
+  }
+
+  function closeSubmitModal() {
+    $('submit-confirm-backdrop').classList.add('hidden');
+  }
+
+  function submitConfirmed() {
+    if (state.submitting || !state.sessionScans.length) return;
+    state.submitting = true;
+    renderSessionList();
+    closeSubmitModal();
+
+    if (!navigator.onLine) {
+      state.sessionScans.slice().forEach(function (item) {
+        state.outbox.push({
+          id: newLocalId(),
+          cug: state.cug,
+          imei: item.barcode,
+          scannedAt: item.scannedAt,
+          createdAt: new Date().toISOString()
+        });
+      });
+      state.sessionScans = [];
+      persistSession();
+      persistOutbox();
+      updateOutboxHint();
+      state.submitting = false;
+      renderSessionList();
+      showToast('Saved offline — will sync when you are back online.', 'info', 5000);
+      return;
+    }
+
+    var uploadedAt = new Date().toISOString();
+    var okImeis = [];
+
+    function processNext() {
+      if (!state.sessionScans.length) {
+        if (okImeis.length) appendHistoryEntries(okImeis, uploadedAt);
+        persistSession();
+        state.submitting = false;
+        renderSessionList();
+        setStatus('Submit complete.', 'success');
+        showToast('Submit complete.', 'success', 3500);
+        return;
+      }
+
+      var item = state.sessionScans[0];
+      writeImeiToApi(item)
+        .then(function (resp) {
+          state.sessionScans.shift();
+          if (resp && resp._conflict) {
+            rememberServerImei(item.barcode);
+          } else {
+            rememberServerImei(item.barcode);
+            okImeis.push(item.barcode);
+          }
+          persistSession();
+          renderSessionList();
+          processNext();
+        })
+        .catch(function () {
+          state.sessionScans.shift();
+          state.outbox.push({
+            id: newLocalId(),
+            cug: state.cug,
+            imei: item.barcode,
+            scannedAt: item.scannedAt,
+            createdAt: new Date().toISOString()
+          });
+          persistOutbox();
+          persistSession();
+          updateOutboxHint();
+          renderSessionList();
+          processNext();
+        });
+    }
+
+    processNext();
+  }
+
+  function flushOutbox() {
+    if (!navigator.onLine || !state.outbox.length || !state.cug) return;
+    var copy = state.outbox.slice();
+    var remaining = [];
+    var uploadedAt = new Date().toISOString();
+    var saved = [];
+
+    function step(idx) {
+      if (idx >= copy.length) {
+        state.outbox = remaining;
+        persistOutbox();
+        updateOutboxHint();
+        closeOutboxPanel();
+        if (saved.length) {
+          appendHistoryEntries(saved, uploadedAt);
+          showToast('Synced ' + saved.length + ' offline scan(s).', 'success', 4000);
+        }
+        return;
+      }
+      var job = copy[idx];
+      if (String(job.cug || '').trim() !== state.cug) {
+        remaining.push(job);
+        step(idx + 1);
+        return;
+      }
+      writeImeiToApi({ barcode: job.imei, scannedAt: job.scannedAt })
+        .then(function (resp) {
+          if (!resp || !resp._conflict) {
+            saved.push(job.imei);
+            rememberServerImei(job.imei);
+          }
+          step(idx + 1);
+        })
+        .catch(function () {
+          remaining.push(job);
+          step(idx + 1);
+        });
+    }
+
+    step(0);
+  }
+
+  function tryAutoStartCamera() {
+    if (!state.cug) return;
+    setTimeout(function () {
+      if ($('view-scan') && !$('view-scan').classList.contains('view--hidden')) {
+        startScanner();
+      }
+    }, 450);
   }
 
   function registerServiceWorker() {
@@ -694,92 +930,118 @@
   }
 
   function wireUi() {
-    $('btn-camera').addEventListener('click', function () {
-      if (!state.username) {
-        openModal(false);
-        setStatus('Save your number first.', 'error');
+    $('menu-history').addEventListener('click', function () {
+      showView('history');
+    });
+    $('menu-settings').addEventListener('click', function () {
+      showView('settings');
+    });
+
+    $('history-back').addEventListener('click', function () {
+      showView('scan');
+      tryAutoStartCamera();
+    });
+
+    $('settings-back').addEventListener('click', function () {
+      showView('scan');
+      tryAutoStartCamera();
+    });
+
+    $('settings-save').addEventListener('click', function () {
+      var v = $('settings-cug-input').value;
+      if (!validateCug(v)) {
+        showToast('Enter a valid 9-digit CUG.', 'error', 4000);
         return;
       }
-      startScanner();
-    });
-    $('btn-stop').addEventListener('click', function () {
-      hideScanChoiceSheet();
-      stopScanner();
-    });
-    $('modal-save').addEventListener('click', function () {
-      var v = $('username-input').value;
-      if (!validateUsername(v)) {
-        setStatus('Enter a 9-digit number.', 'error');
-        return;
-      }
-      state.username = v.trim();
-      saveUsername(state.username);
-      showUserPill();
-      closeModal();
-      setStatus('Number saved on this device.');
-    });
-    $('modal-cancel').addEventListener('click', closeModal);
-    $('btn-change-user').addEventListener('click', function () {
-      openModal(true);
+      var apiIn = $('settings-api-input').value.trim();
+      if (apiIn) setApiBase(apiIn);
+      else setApiBase('');
+
+      saveCug(v);
+      state.apiBase = getApiBase();
+
+      fetchScannerDeviceRecords()
+        .then(function (data) {
+          state.serverImeiKeys = {};
+          mergeServerImeisFromItems(data.items || []);
+          persistServerCache();
+          showToast('CUG saved — synced ' + (data.count || 0) + ' server record(s).', 'success', 4000);
+        })
+        .catch(function () {
+          showToast('CUG saved (server sync failed — will retry on next open).', 'info', 5000);
+        })
+        .finally(function () {
+          showView('scan');
+          tryAutoStartCamera();
+        });
     });
 
-    $('card-pending').addEventListener('click', function () {
-      openListPanel('pending');
-    });
-    $('card-today').addEventListener('click', function () {
-      openListPanel('today');
-    });
-    $('card-all').addEventListener('click', function () {
-      openListPanel('all');
-    });
-
-    $('list-panel-close').addEventListener('click', closeListPanel);
-    $('list-panel-backdrop').addEventListener('click', function (e) {
-      if (e.target === $('list-panel-backdrop')) {
-        closeListPanel();
-      }
-    });
-
-    $('list-select-all').addEventListener('click', selectAllPendingCheckboxes);
-    $('list-upload').addEventListener('click', uploadSelectedPending);
-
-    $('btn-scan-next').addEventListener('click', function () {
-      $('scan-choice-backdrop').classList.add('hidden');
-      resumeScannerForNextScan();
-    });
-    $('btn-scan-done').addEventListener('click', function () {
-      hideScanChoiceSheet();
+    $('btn-retry').addEventListener('click', function () {
       stopScanner().then(function () {
-        openListPanel('pending');
-        setStatus('Select items to upload when you are ready.');
+        startScanner();
       });
     });
-    // Re-entry button: discard the last-saved scan (wrong code) and resume
-    $('btn-scan-reentry').addEventListener('click', function () {
-      if (state.lastSavedId) {
-        removePendingById(state.lastSavedId);
-        state.lastSavedId = null;
-        renderStats();
-        showToast('Scan removed. Point camera at the correct code.', 'info', 3000);
-      } else {
-        showToast('No scan to remove. Ready for next code.', 'info', 2500);
-      }
-      $('scan-choice-backdrop').classList.add('hidden');
-      resumeScannerForNextScan();
+
+    $('btn-submit').addEventListener('click', function () {
+      openSubmitModal();
     });
+
+    $('submit-cancel').addEventListener('click', closeSubmitModal);
+    $('submit-confirm').addEventListener('click', submitConfirmed);
+
+    $('submit-confirm-backdrop').addEventListener('click', function (e) {
+      if (e.target === $('submit-confirm-backdrop')) closeSubmitModal();
+    });
+
+    $('outbox-hint').addEventListener('click', openOutboxPanel);
+    $('outbox-panel-close').addEventListener('click', closeOutboxPanel);
+    $('outbox-panel-backdrop').addEventListener('click', function (e) {
+      if (e.target === $('outbox-panel-backdrop')) closeOutboxPanel();
+    });
+
+    window.addEventListener('online', function () {
+      updateConnPill();
+      flushOutbox();
+    });
+    window.addEventListener('offline', updateConnPill);
   }
 
   function init() {
-    state.username = loadUsername();
-    state.pending = loadPending();
-    state.uploaded = loadUploaded();
-    renderStats();
-    showUserPill();
+    state.apiBase = getApiBase();
+    state.cug = loadCug();
+    state.sessionScans = loadSession();
+    state.history = loadHistory();
+    state.outbox = loadOutbox();
+
+    var cache = loadServerCache();
+    if (cache.cug === state.cug && cache.keys) {
+      state.serverImeiKeys = cache.keys;
+    } else if (state.cug) {
+      state.serverImeiKeys = {};
+    }
+
+    updateConnPill();
+    updateOutboxHint();
     wireUi();
     registerServiceWorker();
 
-    if (!state.username) {
-      openModal(false);
+    if (!state.cug) {
+      showView('settings');
+    } else {
+      showView('scan');
+      renderSessionList();
+      tryAutoStartCamera();
+    }
+
+    flushOutbox();
+
+    if (state.cug && navigator.onLine) {
+      fetchScannerDeviceRecords()
+        .then(function (data) {
+          mergeServerImeisFromItems(data.items || []);
+          persistServerCache();
+        })
+        .catch(function () {});
     }
   }
 
