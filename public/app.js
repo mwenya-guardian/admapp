@@ -79,6 +79,32 @@
     return String(s || '').replace(/\D/g, '');
   }
 
+  function dayKeyFromIso(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return (
+        d.getFullYear() +
+        '-' +
+        String(d.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(d.getDate()).padStart(2, '0')
+      );
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function formatWhen(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso || '');
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (e) {
+      return String(iso || '');
+    }
+  }
+
   function newLocalId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return crypto.randomUUID();
@@ -223,20 +249,100 @@
     el.classList.toggle('conn-pill--offline', !online);
   }
 
+  function getOutboxForCurrentCug() {
+    if (!state.cug) return [];
+    return state.outbox.filter(function (job) {
+      return String(job.cug || '').trim() === state.cug;
+    });
+  }
+
   function updateOutboxHint() {
     var el = $('outbox-hint');
     if (!el) return;
-    var n = state.outbox.length;
+    var pending = getOutboxForCurrentCug();
+    var n = pending.length;
     if (n === 0) {
       el.classList.add('hidden');
       el.textContent = '';
+      el.removeAttribute('aria-label');
       return;
     }
     el.classList.remove('hidden');
-    el.textContent =
+    var label =
       n === 1
-        ? '1 scan waiting to sync when you are online.'
-        : n + ' scans waiting to sync when you are online.';
+        ? '1 scan waiting to sync — tap to view signed date'
+        : n + ' scans waiting to sync — tap to view signed dates';
+    el.textContent = label;
+    el.setAttribute('aria-label', label);
+  }
+
+  function renderOutboxPanel() {
+    var body = $('outbox-panel-body');
+    if (!body) return;
+    var pending = getOutboxForCurrentCug();
+    if (!pending.length) {
+      body.innerHTML = '<p class="history-empty">Nothing waiting to sync.</p>';
+      return;
+    }
+
+    var byDay = {};
+    pending.forEach(function (job) {
+      var signedIso = job.scannedAt || job.createdAt || '';
+      var day = dayKeyFromIso(signedIso) || 'Unknown date';
+      if (!byDay[day]) byDay[day] = [];
+      byDay[day].push({
+        imei: job.imei,
+        signedIso: signedIso
+      });
+    });
+
+    var days = Object.keys(byDay).sort(function (a, b) {
+      if (a === 'Unknown date') return 1;
+      if (b === 'Unknown date') return -1;
+      return b.localeCompare(a);
+    });
+
+    body.innerHTML = '';
+    days.forEach(function (day) {
+      var section = document.createElement('section');
+      section.className = 'history-day';
+      var h = document.createElement('h3');
+      h.className = 'history-day__title';
+      h.textContent = day === 'Unknown date' ? day : formatHistoryDayTitle(day);
+      var ol = document.createElement('ol');
+      byDay[day]
+        .sort(function (a, b) {
+          return new Date(b.signedIso) - new Date(a.signedIso);
+        })
+        .forEach(function (row) {
+          var li = document.createElement('li');
+          var wrap = document.createElement('div');
+          wrap.className = 'outbox-row';
+          var code = document.createElement('span');
+          code.className = 'outbox-row__imei';
+          code.textContent = row.imei;
+          var when = document.createElement('span');
+          when.className = 'outbox-row__when';
+          when.textContent = 'Signed ' + formatWhen(row.signedIso);
+          wrap.appendChild(code);
+          wrap.appendChild(when);
+          li.appendChild(wrap);
+          ol.appendChild(li);
+        });
+      section.appendChild(h);
+      section.appendChild(ol);
+      body.appendChild(section);
+    });
+  }
+
+  function openOutboxPanel() {
+    if (!getOutboxForCurrentCug().length) return;
+    renderOutboxPanel();
+    $('outbox-panel-backdrop').classList.remove('hidden');
+  }
+
+  function closeOutboxPanel() {
+    $('outbox-panel-backdrop').classList.add('hidden');
   }
 
   /* ── Toast (position: top via CSS) ───────────────────────────── */
@@ -775,6 +881,7 @@
         state.outbox = remaining;
         persistOutbox();
         updateOutboxHint();
+        closeOutboxPanel();
         if (saved.length) {
           appendHistoryEntries(saved, uploadedAt);
           showToast('Synced ' + saved.length + ' offline scan(s).', 'success', 4000);
@@ -884,6 +991,12 @@
 
     $('submit-confirm-backdrop').addEventListener('click', function (e) {
       if (e.target === $('submit-confirm-backdrop')) closeSubmitModal();
+    });
+
+    $('outbox-hint').addEventListener('click', openOutboxPanel);
+    $('outbox-panel-close').addEventListener('click', closeOutboxPanel);
+    $('outbox-panel-backdrop').addEventListener('click', function (e) {
+      if (e.target === $('outbox-panel-backdrop')) closeOutboxPanel();
     });
 
     window.addEventListener('online', function () {

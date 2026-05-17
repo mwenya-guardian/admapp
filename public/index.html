@@ -56,7 +56,9 @@
             <button type="button" id="btn-retry" class="btn btn-secondary">Retry camera</button>
             <button type="button" id="btn-submit" class="btn btn-primary" disabled>Submit</button>
           </div>
-          <p id="outbox-hint" class="outbox-hint hidden" role="status"></p>
+          <button type="button" id="outbox-hint" class="outbox-hint hidden" aria-live="polite">
+            Pending sync
+          </button>
           <p class="footer-note">Install to Home Screen for a full-screen experience.</p>
         </div>
       </main>
@@ -106,6 +108,23 @@
           </details>
         </div>
       </main>
+    </div>
+
+    <!-- Pending offline sync -->
+    <div id="outbox-panel-backdrop" class="modal-backdrop hidden" role="presentation">
+      <div
+        class="modal sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="outbox-panel-title"
+      >
+        <div class="sheet-head">
+          <h2 id="outbox-panel-title">Waiting to sync</h2>
+          <button type="button" id="outbox-panel-close" class="btn-icon" aria-label="Close">×</button>
+        </div>
+        <p class="sheet-sub">Signed on these dates — will upload when you are online.</p>
+        <div id="outbox-panel-body" class="outbox-panel-body"></div>
+      </div>
     </div>
 
     <!-- Submit confirmation -->

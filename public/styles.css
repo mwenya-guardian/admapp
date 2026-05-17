@@ -366,14 +366,126 @@ body {
 }
 
 .outbox-hint {
+  display: block;
+  width: 100%;
   margin: 0;
+  padding: 8px 10px;
   font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: inherit;
   color: rgb(var(--warning));
   text-align: center;
+  background: rgb(var(--warning) / 0.08);
+  border: 1px dashed rgb(var(--warning) / 0.45);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.outbox-hint:hover {
+  background: rgb(var(--warning) / 0.14);
+  border-color: rgb(var(--warning) / 0.65);
+}
+
+.outbox-hint:focus-visible {
+  outline: 2px solid rgb(var(--warning));
+  outline-offset: 2px;
 }
 
 .outbox-hint.hidden {
   display: none;
+}
+
+.sheet {
+  max-width: 480px;
+  max-height: min(88dvh, 640px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+@media (min-width: 480px) {
+  .sheet {
+    border-radius: var(--radius);
+  }
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.btn-icon {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: rgb(var(--muted));
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btn-icon:hover {
+  color: rgb(var(--fg));
+  background: rgb(var(--bg));
+}
+
+.sheet-sub {
+  margin: 0 0 10px;
+  font-size: var(--text-sm);
+  color: rgb(var(--muted));
+}
+
+.outbox-panel-body {
+  flex: 1;
+  min-height: 80px;
+  max-height: min(52dvh, 400px);
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 2px;
+}
+
+#outbox-panel-backdrop {
+  z-index: 120;
+}
+
+.outbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--bg));
+  margin-bottom: 6px;
+}
+
+.outbox-row__imei {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.outbox-row__when {
+  font-size: var(--text-xs);
+  color: rgb(var(--muted));
+}
+
+.modal.sheet {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
 }
 
 .footer-note {
