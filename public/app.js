@@ -11,8 +11,15 @@
 
   var DEFAULT_API_BASE = 'https://adm-backend-s1wt.onrender.com/api';
 
+  /* Higher fps = more decode attempts per second (snappier). Native BarcodeDetector when available is faster on many phones. */
   var SCAN_CAMERA = { facingMode: 'environment' };
-  var SCAN_CONFIG = { fps: 12, qrbox: { width: 240, height: 168 } };
+  var SCAN_CONFIG = {
+    fps: 26,
+    qrbox: { width: 260, height: 182 },
+    experimentalFeatures: {
+      useBarCodeDetectorIfSupported: true
+    }
+  };
 
   var state = {
     scanner: null,
@@ -728,7 +735,7 @@
     var text = String(decodedText || '').trim();
     if (!text) return;
     var now = Date.now();
-    if (text === state.lastCode && now - state.lastCodeAt < 2000) return;
+    if (text === state.lastCode && now - state.lastCodeAt < 1100) return;
     state.scanChoiceOpen = true;
     state.lastCode = text;
     state.lastCodeAt = now;
