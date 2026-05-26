@@ -65,13 +65,6 @@ body {
   flex: 1;
 }
 
-.topbar__logo {
-  flex-shrink: 0;
-  height: 24px;
-  width: auto;
-  object-fit: contain;
-}
-
 .topbar__title {
   margin: 0;
   font-size: 0.9375rem;
