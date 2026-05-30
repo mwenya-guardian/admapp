@@ -928,6 +928,7 @@
 
     var uploadedAt = new Date().toISOString();
     var okImeis = [];
+    var conflictImeis = [];
 
     function processNext() {
       if (!state.sessionScans.length) {
@@ -935,8 +936,25 @@
         persistSession();
         state.submitting = false;
         renderSessionList();
-        setStatus('Submit complete.', 'success');
-        showToast('Submit complete.', 'success', 3500);
+        if (okImeis.length && !conflictImeis.length) {
+          setStatus('Submit complete.', 'success');
+          showToast('Submit complete.', 'success', 3500);
+        } else if (okImeis.length && conflictImeis.length) {
+          var partial =
+            'Saved ' +
+            okImeis.length +
+            '; ' +
+            conflictImeis.length +
+            ' already signed for.';
+          setStatus(partial, 'success');
+          showToast(partial, 'info', 5000);
+        } else if (conflictImeis.length) {
+          setStatus('Already signed for.', 'error');
+          showToast('This device has already been signed for', 'error', 4500);
+        } else {
+          setStatus('Nothing to submit.', 'error');
+          showToast('Nothing to submit.', 'error', 3500);
+        }
         return;
       }
 
@@ -944,10 +962,10 @@
       writeImeiToApi(item)
         .then(function (resp) {
           state.sessionScans.shift();
+          rememberServerImei(item.barcode);
           if (resp && resp._conflict) {
-            rememberServerImei(item.barcode);
+            conflictImeis.push(item.barcode);
           } else {
-            rememberServerImei(item.barcode);
             okImeis.push(item.barcode);
           }
           persistSession();
