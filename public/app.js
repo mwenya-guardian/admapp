@@ -522,16 +522,44 @@
     if (el) el.innerHTML = '';
   }
 
-  function applyReaderVideoAttrs() {
+  function ensureVideoPlaying() {
     var wrap = $('reader-wrap');
     if (!wrap) return;
     var vid = wrap.querySelector('video');
-    if (vid) {
-      vid.setAttribute('playsinline', '');
-      vid.setAttribute('webkit-playsinline', '');
-      vid.playsInline = true;
-      vid.muted = true;
+    if (!vid) return;
+    vid.setAttribute('playsinline', '');
+    vid.setAttribute('webkit-playsinline', '');
+    vid.playsInline = true;
+    vid.muted = true;
+    if (vid.paused) {
+      var playPromise = vid.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(function () {});
+      }
     }
+  }
+
+  function applyReaderVideoAttrs() {
+    ensureVideoPlaying();
+  }
+
+  /** Keep the same camera stream — full restart breaks many installed PWAs. */
+  function resumeScannerAfterScan() {
+    state.scanChoiceOpen = false;
+    if (!state.scanner || !state.scanning) return;
+
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        try {
+          state.scanner.resume();
+          ensureVideoPlaying();
+          setStatus('Point the camera at the next code.');
+        } catch (err) {
+          console.warn('Scanner resume failed, restarting', err);
+          restartScannerFully();
+        }
+      });
+    });
   }
 
   function startScanner() {
@@ -573,6 +601,51 @@
       });
   }
 
+  function restartScannerFully() {
+    if (!state.scanner || !state.scanning) {
+      state.scanChoiceOpen = false;
+      return;
+    }
+    setStatus('Restarting camera…');
+    var prev = state.scanner;
+    state.scanning = false;
+    prev
+      .stop()
+      .then(function () {
+        try {
+          prev.clear();
+        } catch (e) {}
+        clearReaderDom();
+        state.scanner = null;
+        return new Promise(function (resolve) {
+          setTimeout(resolve, 350);
+        });
+      })
+      .then(function () {
+        state.scanner = buildScanner();
+        return state.scanner.start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {});
+      })
+      .then(function () {
+        state.scanning = true;
+        state.scanChoiceOpen = false;
+        applyReaderVideoAttrs();
+        setStatus('Point the camera at the next code.');
+      })
+      .catch(function (err) {
+        console.error(err);
+        state.scanChoiceOpen = false;
+        state.scanner = null;
+        state.scanning = false;
+        clearReaderDom();
+        var readerWrap = $('reader-wrap');
+        if (readerWrap) {
+          readerWrap.classList.add('hidden');
+          readerWrap.setAttribute('aria-hidden', 'true');
+        }
+        setStatus(err.message || 'Could not restart camera. Use Retry camera.', 'error');
+      });
+  }
+
   function stopScanner() {
     if (!state.scanner || !state.scanning) {
       return Promise.resolve();
@@ -606,41 +679,7 @@
   }
 
   function resumeScannerForNextScan() {
-    if (!state.scanner || !state.scanning) {
-      state.scanChoiceOpen = false;
-      return;
-    }
-    setStatus('Restarting camera…');
-    var prev = state.scanner;
-    prev
-      .stop()
-      .then(function () {
-        try {
-          prev.clear();
-        } catch (e) {}
-        clearReaderDom();
-        state.scanner = buildScanner();
-        return state.scanner.start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {});
-      })
-      .then(function () {
-        state.scanning = true;
-        state.scanChoiceOpen = false;
-        applyReaderVideoAttrs();
-        setStatus('Point the camera at the next code.');
-      })
-      .catch(function (err) {
-        console.error(err);
-        state.scanChoiceOpen = false;
-        state.scanner = null;
-        state.scanning = false;
-        clearReaderDom();
-        var readerWrap = $('reader-wrap');
-        if (readerWrap) {
-          readerWrap.classList.add('hidden');
-          readerWrap.setAttribute('aria-hidden', 'true');
-        }
-        setStatus(err.message || 'Could not restart camera. Use Retry camera.', 'error');
-      });
+    resumeScannerAfterScan();
   }
 
   function checkRecordOnline(norm, rawBarcode) {
@@ -1106,7 +1145,7 @@
 
     $('btn-retry').addEventListener('click', function () {
       stopScanner().then(function () {
-        startScanner();
+        setTimeout(startScanner, 350);
       });
     });
 
@@ -1132,6 +1171,15 @@
       flushOutbox();
     });
     window.addEventListener('offline', updateConnPill);
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden || !state.scanning) return;
+      ensureVideoPlaying();
+      if (state.scanChoiceOpen) return;
+      try {
+        if (state.scanner) state.scanner.resume();
+      } catch (e) {}
+    });
   }
 
   function init() {
