@@ -65,6 +65,15 @@ body {
   flex: 1;
 }
 
+.topbar__logo {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: rgb(var(--bg));
+}
+
 .topbar__title {
   margin: 0;
   font-size: 0.9375rem;

@@ -1,12 +1,16 @@
-const CACHE = 'adm-pwa-v10';
+const CACHE = 'adm-pwa-v11';
 const ASSETS = [
   '/',
   '/index.html',
   '/styles.css',
   '/app.js',
   '/manifest.json',
+  '/brand/logo.png',
+  '/icons/favicon-32.png',
   '/icons/icon-192.png',
-  '/icons/icon-512.png'
+  '/icons/icon-384.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -30,18 +34,13 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/__/')) return;
 
-  // Network-First Strategy
   event.respondWith(
     fetch(request)
       .then((res) => {
-        // If network request succeeds, save a fresh copy to cache
         const copy = res.clone();
         caches.open(CACHE).then((cache) => cache.put(request, copy));
         return res;
       })
-      .catch(() => {
-        // If network request fails (e.g., offline), fallback to cache
-        return caches.match(request);
-      })
+      .catch(() => caches.match(request))
   );
 });

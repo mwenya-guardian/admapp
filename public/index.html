@@ -8,7 +8,10 @@
     />
     <meta name="theme-color" content="#0E1117" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ADM Scanner" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="ADM Scanner" />
     <title>ADM Scanner</title>
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,8 +21,8 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/styles.css" />
-    <link rel="icon" type="image/png" href="/brand/logo.png" />
-    <link rel="apple-touch-icon" href="/brand/logo.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
     <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script defer src="/app.js"></script>
   </head>
@@ -27,6 +30,7 @@
     <div id="app-root">
       <header class="topbar" aria-label="App bar">
         <div class="topbar__brand">
+          <img class="topbar__logo" src="/brand/logo.png" width="32" height="32" alt="" />
           <h1 class="topbar__title">ADM Scanner</h1>
           <span id="conn-pill" class="conn-pill conn-pill--online" aria-live="polite">Online</span>
         </div>
