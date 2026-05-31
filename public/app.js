@@ -11,8 +11,15 @@
 
   var DEFAULT_API_BASE = 'https://adm-backend-s1wt.onrender.com/api';
 
+  /* Higher fps = more decode attempts per second (snappier). Native BarcodeDetector when available is faster on many phones. */
   var SCAN_CAMERA = { facingMode: 'environment' };
-  var SCAN_CONFIG = { fps: 12, qrbox: { width: 240, height: 168 } };
+  var SCAN_CONFIG = {
+    fps: 26,
+    qrbox: { width: 260, height: 182 },
+    experimentalFeatures: {
+      useBarCodeDetectorIfSupported: true
+    }
+  };
 
   var state = {
     scanner: null,
@@ -728,7 +735,7 @@
     var text = String(decodedText || '').trim();
     if (!text) return;
     var now = Date.now();
-    if (text === state.lastCode && now - state.lastCodeAt < 2000) return;
+    if (text === state.lastCode && now - state.lastCodeAt < 1100) return;
     state.scanChoiceOpen = true;
     state.lastCode = text;
     state.lastCodeAt = now;
@@ -921,6 +928,7 @@
 
     var uploadedAt = new Date().toISOString();
     var okImeis = [];
+    var conflictImeis = [];
 
     function processNext() {
       if (!state.sessionScans.length) {
@@ -928,8 +936,25 @@
         persistSession();
         state.submitting = false;
         renderSessionList();
-        setStatus('Submit complete.', 'success');
-        showToast('Submit complete.', 'success', 3500);
+        if (okImeis.length && !conflictImeis.length) {
+          setStatus('Submit complete.', 'success');
+          showToast('Submit complete.', 'success', 3500);
+        } else if (okImeis.length && conflictImeis.length) {
+          var partial =
+            'Saved ' +
+            okImeis.length +
+            '; ' +
+            conflictImeis.length +
+            ' already signed for.';
+          setStatus(partial, 'success');
+          showToast(partial, 'info', 5000);
+        } else if (conflictImeis.length) {
+          setStatus('Already signed for.', 'error');
+          showToast('This device has already been signed for', 'error', 4500);
+        } else {
+          setStatus('Nothing to submit.', 'error');
+          showToast('Nothing to submit.', 'error', 3500);
+        }
         return;
       }
 
@@ -937,10 +962,10 @@
       writeImeiToApi(item)
         .then(function (resp) {
           state.sessionScans.shift();
+          rememberServerImei(item.barcode);
           if (resp && resp._conflict) {
-            rememberServerImei(item.barcode);
+            conflictImeis.push(item.barcode);
           } else {
-            rememberServerImei(item.barcode);
             okImeis.push(item.barcode);
           }
           persistSession();
