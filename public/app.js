@@ -1,39 +1,40 @@
 (function () {
-  'use strict';
+  "use strict";
 
-  var LEGACY_USERNAME_KEY = 'adm_pwa_username';
-  var CUG_KEY = 'adm_pwa_cug';
-  var API_BASE_KEY = 'adm_api_base';
-  var SESSION_KEY = 'adm_session_scans_v1';
-  var SERVER_IMEI_CACHE_KEY = 'adm_server_imeis_cache_v1';
-  var HISTORY_KEY = 'adm_history_v1';
-  var OUTBOX_KEY = 'adm_outbox_v1';
+  var LEGACY_USERNAME_KEY = "adm_pwa_username";
+  var CUG_KEY = "adm_pwa_cug";
+  var API_BASE_KEY = "adm_api_base";
+  var SESSION_KEY = "adm_session_scans_v1";
+  var SERVER_IMEI_CACHE_KEY = "adm_server_imeis_cache_v1";
+  var HISTORY_KEY = "adm_history_v1";
+  var OUTBOX_KEY = "adm_outbox_v1";
 
-  var DEFAULT_API_BASE = 'https://adm-backend-s1wt.onrender.com/api';
+  var DEFAULT_API_BASE = "https://adm-backend-s1wt.onrender.com/api";
 
   /* Higher fps = more decode attempts per second (snappier). Native BarcodeDetector when available is faster on many phones. */
-  var SCAN_CAMERA = { facingMode: 'environment' };
+  var SCAN_CAMERA = { facingMode: "environment" };
   var SCAN_CONFIG = {
     fps: 26,
     qrbox: { width: 260, height: 182 },
     experimentalFeatures: {
-      useBarCodeDetectorIfSupported: true
-    }
+      useBarCodeDetectorIfSupported: true,
+    },
   };
 
   var state = {
     scanner: null,
     scanning: false,
-    lastCode: '',
+    lastCode: "",
     lastCodeAt: 0,
     scanChoiceOpen: false,
-    cug: '',
+    cug: "",
     apiBase: DEFAULT_API_BASE,
     sessionScans: [],
     serverImeiKeys: {},
+    serverImeiByLen: emptyImeiTailIndex(),
     history: [],
     outbox: [],
-    submitting: false
+    submitting: false,
   };
 
   function $(id) {
@@ -42,14 +43,16 @@
 
   function getApiBase() {
     try {
-      var u = (localStorage.getItem(API_BASE_KEY) || '').trim();
-      if (u) return u.replace(/\/$/, '');
+      var u = (localStorage.getItem(API_BASE_KEY) || "").trim();
+      if (u) return u.replace(/\/$/, "");
     } catch (e) {}
     return DEFAULT_API_BASE;
   }
 
   function setApiBase(value) {
-    var v = String(value || '').trim().replace(/\/$/, '');
+    var v = String(value || "")
+      .trim()
+      .replace(/\/$/, "");
     if (!v) {
       localStorage.removeItem(API_BASE_KEY);
       state.apiBase = DEFAULT_API_BASE;
@@ -61,15 +64,15 @@
 
   function loadCug() {
     try {
-      var c = (localStorage.getItem(CUG_KEY) || '').trim();
+      var c = (localStorage.getItem(CUG_KEY) || "").trim();
       if (c) return c;
-      var legacy = (localStorage.getItem(LEGACY_USERNAME_KEY) || '').trim();
+      var legacy = (localStorage.getItem(LEGACY_USERNAME_KEY) || "").trim();
       if (legacy && validateCug(legacy)) {
         localStorage.setItem(CUG_KEY, legacy);
         return legacy;
       }
     } catch (e) {}
-    return '';
+    return "";
   }
 
   function saveCug(value) {
@@ -77,46 +80,124 @@
     state.cug = value.trim();
   }
 
+  var CUG_PREFIX = "97898";
+
   function validateCug(v) {
-    var t = String(v || '').trim();
-    return t.length === 9 && /^[0-9]+$/.test(t);
+    var t = String(v || "").trim();
+    return /^97898[0-9]{4}$/.test(t);
+  }
+
+  function cugValidationMessage() {
+    return "CUG must be 9 digits: " + CUG_PREFIX + " followed by your last 4 digits.";
   }
 
   function normDigits(s) {
-    return String(s || '').replace(/\D/g, '');
+    return String(s || "").replace(/\D/g, "");
+  }
+
+  var IMEI_ALLOWED_LENGTHS = [5, 6, 7, 15];
+
+  function emptyImeiTailIndex() {
+    return { 5: {}, 6: {}, 7: {}, 15: {} };
+  }
+
+  function imeiDigitsMatch(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length < 5 || b.length < 5) return false;
+    var short = a.length <= b.length ? a : b;
+    var long = a.length <= b.length ? b : a;
+    return long.slice(-short.length) === short;
+  }
+
+  function validateImeiDigits(digits) {
+    if (!digits) return "Invalid code — digits only";
+    if (!/^[0-9]+$/.test(digits)) return "IMEI must contain digits only";
+    if (IMEI_ALLOWED_LENGTHS.indexOf(digits.length) === -1) {
+      return "IMEI must be 15 digits";
+    }
+    return null;
+  }
+
+  function registerServerImeiDigits(digits) {
+    if (!digits) return;
+    state.serverImeiKeys[digits] = true;
+    if (digits.length === 15) {
+      state.serverImeiByLen[15][digits] = true;
+      state.serverImeiByLen[5][digits.slice(-5)] = true;
+      state.serverImeiByLen[6][digits.slice(-6)] = true;
+      state.serverImeiByLen[7][digits.slice(-7)] = true;
+    } else if (digits.length >= 5 && digits.length <= 7) {
+      state.serverImeiByLen[digits.length][digits] = true;
+    }
+  }
+
+  function rebuildServerImeiIndex() {
+    state.serverImeiByLen = emptyImeiTailIndex();
+    Object.keys(state.serverImeiKeys || {}).forEach(function (k) {
+      registerServerImeiDigits(k);
+    });
+  }
+
+  function serverHasMatch(digits) {
+    if (!digits) return false;
+    if (state.serverImeiKeys[digits]) return true;
+    if (
+      digits.length >= 5 &&
+      digits.length <= 7 &&
+      state.serverImeiByLen[digits.length][digits]
+    ) {
+      return true;
+    }
+    if (digits.length === 15) {
+      if (state.serverImeiByLen[5][digits.slice(-5)]) return true;
+      if (state.serverImeiByLen[6][digits.slice(-6)]) return true;
+      if (state.serverImeiByLen[7][digits.slice(-7)]) return true;
+    }
+    return false;
+  }
+
+  function sessionHasMatch(digits) {
+    return state.sessionScans.some(function (p) {
+      var other = normDigits(p.barcode);
+      return imeiDigitsMatch(digits, other);
+    });
   }
 
   function dayKeyFromIso(iso) {
     try {
       var d = new Date(iso);
-      if (isNaN(d.getTime())) return '';
+      if (isNaN(d.getTime())) return "";
       return (
         d.getFullYear() +
-        '-' +
-        String(d.getMonth() + 1).padStart(2, '0') +
-        '-' +
-        String(d.getDate()).padStart(2, '0')
+        "-" +
+        String(d.getMonth() + 1).padStart(2, "0") +
+        "-" +
+        String(d.getDate()).padStart(2, "0")
       );
     } catch (e) {
-      return '';
+      return "";
     }
   }
 
   function formatWhen(iso) {
     try {
       var d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso || '');
-      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      if (isNaN(d.getTime())) return String(iso || "");
+      return d.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
     } catch (e) {
-      return String(iso || '');
+      return String(iso || "");
     }
   }
 
   function newLocalId() {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
       return crypto.randomUUID();
     }
-    return String(Date.now()) + '-' + String(Math.random()).slice(2, 10);
+    return String(Date.now()) + "-" + String(Math.random()).slice(2, 10);
   }
 
   function loadSession() {
@@ -137,19 +218,19 @@
   function loadServerCache() {
     try {
       var raw = localStorage.getItem(SERVER_IMEI_CACHE_KEY);
-      if (!raw) return { cug: '', keys: {} };
+      if (!raw) return { cug: "", keys: {} };
       var o = JSON.parse(raw);
-      if (!o || typeof o.keys !== 'object') return { cug: '', keys: {} };
-      return { cug: String(o.cug || ''), keys: o.keys || {} };
+      if (!o || typeof o.keys !== "object") return { cug: "", keys: {} };
+      return { cug: String(o.cug || ""), keys: o.keys || {} };
     } catch (e) {
-      return { cug: '', keys: {} };
+      return { cug: "", keys: {} };
     }
   }
 
   function persistServerCache() {
     localStorage.setItem(
       SERVER_IMEI_CACHE_KEY,
-      JSON.stringify({ cug: state.cug, keys: state.serverImeiKeys })
+      JSON.stringify({ cug: state.cug, keys: state.serverImeiKeys }),
     );
   }
 
@@ -185,9 +266,9 @@
 
   function mergeServerImeisFromItems(items) {
     (items || []).forEach(function (row) {
-      var imei = String((row && row.imei) || '').trim();
+      var imei = String((row && row.imei) || "").trim();
       var k = normDigits(imei);
-      if (k) state.serverImeiKeys[k] = true;
+      if (k) registerServerImeiDigits(k);
     });
   }
 
@@ -200,25 +281,25 @@
   }
 
   function syncHistoryFromServer(items, cug) {
-    var cugClean = String(cug || '').trim();
+    var cugClean = String(cug || "").trim();
     if (!cugClean) return;
 
     var fromServer = [];
     var seen = {};
     (items || []).forEach(function (row) {
-      var imei = String((row && row.imei) || '').trim();
+      var imei = String((row && row.imei) || "").trim();
       if (!imei) return;
       var norm = normDigits(imei);
       if (!norm || seen[norm]) return;
       seen[norm] = true;
       var ts = row.timestamp || new Date().toISOString();
-      var uploadedAt =
-        typeof ts === 'string' ? ts : new Date(ts).toISOString();
+      var uploadedAt = typeof ts === "string" ? ts : new Date(ts).toISOString();
       fromServer.push({
         cug: cugClean,
-        dayKey: dayKeyFromIso(uploadedAt) || dayKeyFromIso(new Date().toISOString()),
+        dayKey:
+          dayKeyFromIso(uploadedAt) || dayKeyFromIso(new Date().toISOString()),
         imei: imei,
-        uploadedAt: uploadedAt
+        uploadedAt: uploadedAt,
       });
     });
 
@@ -248,33 +329,42 @@
 
   function refreshHistoryFromServer(showToastOnSuccess) {
     if (!state.cug) {
-      showToast('Set your CUG in Settings first.', 'error', 3500);
-      return Promise.reject(new Error('no cug'));
+      showToast("Set your CUG in Settings first.", "error", 3500);
+      return Promise.reject(new Error("no cug"));
     }
     if (!navigator.onLine) {
-      showToast('Offline — connect to the internet to refresh.', 'error', 4000);
-      return Promise.reject(new Error('offline'));
+      showToast("Offline — connect to the internet to refresh.", "error", 4000);
+      return Promise.reject(new Error("offline"));
     }
 
-    var btn = $('history-refresh');
+    var btn = $("history-refresh");
     if (btn) btn.disabled = true;
 
     return fetchScannerDeviceRecords()
       .then(function (data) {
         state.serverImeiKeys = {};
+        state.serverImeiByLen = emptyImeiTailIndex();
         mergeServerImeisFromItems(data.items || []);
         persistServerCache();
         syncHistoryFromServer(data.items || [], state.cug);
         renderHistory();
         if (showToastOnSuccess) {
           var n = (data.items || []).length;
-          showToast('History updated — ' + n + ' record(s) from server.', 'success', 4000);
+          showToast(
+            "History updated — " + n + " record(s) from server.",
+            "success",
+            4000,
+          );
         }
         return data;
       })
       .catch(function () {
-        showToast('Could not refresh history. Check connection and API URL.', 'error', 4500);
-        throw new Error('refresh failed');
+        showToast(
+          "Could not refresh history. Check connection and API URL.",
+          "error",
+          4500,
+        );
+        throw new Error("refresh failed");
       })
       .finally(function () {
         if (btn) btn.disabled = false;
@@ -284,97 +374,87 @@
   function rememberServerImei(barcode) {
     var k = normDigits(barcode);
     if (k) {
-      state.serverImeiKeys[k] = true;
+      registerServerImeiDigits(k);
       persistServerCache();
     }
   }
 
-  function sessionHasNorm(norm) {
-    return state.sessionScans.some(function (p) {
-      return normDigits(p.barcode) === norm;
-    });
-  }
-
-  function serverHasNorm(norm) {
-    return !!state.serverImeiKeys[norm];
-  }
-
   function closeMenu() {
-    var d = $('topbar-menu');
-    if (d && d.tagName === 'DETAILS') d.open = false;
+    var d = $("topbar-menu");
+    if (d && d.tagName === "DETAILS") d.open = false;
   }
 
   function showView(name) {
     closeMenu();
-    var scan = $('view-scan');
-    var hist = $('view-history');
-    var sett = $('view-settings');
-    if (scan) scan.classList.toggle('view--hidden', name !== 'scan');
-    if (hist) hist.classList.toggle('view--hidden', name !== 'history');
-    if (sett) sett.classList.toggle('view--hidden', name !== 'settings');
+    var scan = $("view-scan");
+    var hist = $("view-history");
+    var sett = $("view-settings");
+    if (scan) scan.classList.toggle("view--hidden", name !== "scan");
+    if (hist) hist.classList.toggle("view--hidden", name !== "history");
+    if (sett) sett.classList.toggle("view--hidden", name !== "settings");
 
-    var back = $('settings-back');
+    var back = $("settings-back");
     if (back) {
-      back.classList.toggle('hidden', name !== 'settings' || !state.cug);
+      back.classList.toggle("hidden", name !== "settings" || !state.cug);
     }
 
-    if (name === 'history') {
-      $('history-cug').textContent = state.cug || '—';
+    if (name === "history") {
+      $("history-cug").textContent = state.cug || "—";
       renderHistory();
     }
-    if (name === 'settings') {
-      $('settings-cug-input').value = state.cug;
-      $('settings-api-input').value =
-        state.apiBase === DEFAULT_API_BASE ? '' : state.apiBase;
+    if (name === "settings") {
+      $("settings-cug-input").value = state.cug;
+      $("settings-api-input").value =
+        state.apiBase === DEFAULT_API_BASE ? "" : state.apiBase;
     }
   }
 
   function setStatus(message, kind) {
-    var el = $('status');
+    var el = $("status");
     if (!el) return;
-    el.textContent = message || '';
-    el.classList.remove('error', 'success');
+    el.textContent = message || "";
+    el.classList.remove("error", "success");
     if (kind) el.classList.add(kind);
   }
 
   function updateConnPill() {
-    var el = $('conn-pill');
+    var el = $("conn-pill");
     if (!el) return;
-    var online = typeof navigator !== 'undefined' && navigator.onLine;
-    el.textContent = online ? 'Online' : 'Offline';
-    el.classList.toggle('conn-pill--online', online);
-    el.classList.toggle('conn-pill--offline', !online);
+    var online = typeof navigator !== "undefined" && navigator.onLine;
+    el.textContent = online ? "Online" : "Offline";
+    el.classList.toggle("conn-pill--online", online);
+    el.classList.toggle("conn-pill--offline", !online);
   }
 
   function getOutboxForCurrentCug() {
     if (!state.cug) return [];
     return state.outbox.filter(function (job) {
-      return String(job.cug || '').trim() === state.cug;
+      return String(job.cug || "").trim() === state.cug;
     });
   }
 
   function updateOutboxHint() {
-    var el = $('outbox-hint');
+    var el = $("outbox-hint");
     if (!el) return;
     var pending = getOutboxForCurrentCug();
     var n = pending.length;
     if (n === 0) {
-      el.classList.add('hidden');
-      el.textContent = '';
-      el.removeAttribute('aria-label');
+      el.classList.add("hidden");
+      el.textContent = "";
+      el.removeAttribute("aria-label");
       return;
     }
-    el.classList.remove('hidden');
+    el.classList.remove("hidden");
     var label =
       n === 1
-        ? '1 scan waiting to sync — tap to view signed date'
-        : n + ' scans waiting to sync — tap to view signed dates';
+        ? "1 scan waiting to sync — tap to view signed date"
+        : n + " scans waiting to sync — tap to view signed dates";
     el.textContent = label;
-    el.setAttribute('aria-label', label);
+    el.setAttribute("aria-label", label);
   }
 
   function renderOutboxPanel() {
-    var body = $('outbox-panel-body');
+    var body = $("outbox-panel-body");
     if (!body) return;
     var pending = getOutboxForCurrentCug();
     if (!pending.length) {
@@ -384,43 +464,43 @@
 
     var byDay = {};
     pending.forEach(function (job) {
-      var signedIso = job.scannedAt || job.createdAt || '';
-      var day = dayKeyFromIso(signedIso) || 'Unknown date';
+      var signedIso = job.scannedAt || job.createdAt || "";
+      var day = dayKeyFromIso(signedIso) || "Unknown date";
       if (!byDay[day]) byDay[day] = [];
       byDay[day].push({
         imei: job.imei,
-        signedIso: signedIso
+        signedIso: signedIso,
       });
     });
 
     var days = Object.keys(byDay).sort(function (a, b) {
-      if (a === 'Unknown date') return 1;
-      if (b === 'Unknown date') return -1;
+      if (a === "Unknown date") return 1;
+      if (b === "Unknown date") return -1;
       return b.localeCompare(a);
     });
 
-    body.innerHTML = '';
+    body.innerHTML = "";
     days.forEach(function (day) {
-      var section = document.createElement('section');
-      section.className = 'history-day';
-      var h = document.createElement('h3');
-      h.className = 'history-day__title';
-      h.textContent = day === 'Unknown date' ? day : formatHistoryDayTitle(day);
-      var ol = document.createElement('ol');
+      var section = document.createElement("section");
+      section.className = "history-day";
+      var h = document.createElement("h3");
+      h.className = "history-day__title";
+      h.textContent = day === "Unknown date" ? day : formatHistoryDayTitle(day);
+      var ol = document.createElement("ol");
       byDay[day]
         .sort(function (a, b) {
           return new Date(b.signedIso) - new Date(a.signedIso);
         })
         .forEach(function (row) {
-          var li = document.createElement('li');
-          var wrap = document.createElement('div');
-          wrap.className = 'outbox-row';
-          var code = document.createElement('span');
-          code.className = 'outbox-row__imei';
+          var li = document.createElement("li");
+          var wrap = document.createElement("div");
+          wrap.className = "outbox-row";
+          var code = document.createElement("span");
+          code.className = "outbox-row__imei";
           code.textContent = row.imei;
-          var when = document.createElement('span');
-          when.className = 'outbox-row__when';
-          when.textContent = 'Signed ' + formatWhen(row.signedIso);
+          var when = document.createElement("span");
+          when.className = "outbox-row__when";
+          when.textContent = "Signed " + formatWhen(row.signedIso);
           wrap.appendChild(code);
           wrap.appendChild(when);
           li.appendChild(wrap);
@@ -435,43 +515,43 @@
   function openOutboxPanel() {
     if (!getOutboxForCurrentCug().length) return;
     renderOutboxPanel();
-    $('outbox-panel-backdrop').classList.remove('hidden');
+    $("outbox-panel-backdrop").classList.remove("hidden");
   }
 
   function closeOutboxPanel() {
-    $('outbox-panel-backdrop').classList.add('hidden');
+    $("outbox-panel-backdrop").classList.add("hidden");
   }
 
   /* ── Toast (position: top via CSS) ───────────────────────────── */
   var _toastTimer = null;
   function showToast(message, kind, duration) {
-    var container = $('toast-container');
+    var container = $("toast-container");
     if (!container) return;
     if (_toastTimer) {
       clearTimeout(_toastTimer);
       _toastTimer = null;
     }
-    var old = container.querySelector('.toast');
+    var old = container.querySelector(".toast");
     if (old) old.remove();
 
-    var toast = document.createElement('div');
-    toast.className = 'toast toast--' + (kind || 'info');
-    toast.setAttribute('role', 'alert');
+    var toast = document.createElement("div");
+    toast.className = "toast toast--" + (kind || "info");
+    toast.setAttribute("role", "alert");
 
-    var icon = document.createElement('span');
-    icon.className = 'toast-icon';
-    icon.textContent = kind === 'success' ? '✓' : kind === 'error' ? '✕' : 'ℹ';
+    var icon = document.createElement("span");
+    icon.className = "toast-icon";
+    icon.textContent = kind === "success" ? "✓" : kind === "error" ? "✕" : "ℹ";
 
-    var text = document.createElement('span');
-    text.className = 'toast-text';
-    text.textContent = message || '';
+    var text = document.createElement("span");
+    text.className = "toast-text";
+    text.textContent = message || "";
 
-    var close = document.createElement('button');
-    close.className = 'toast-close';
-    close.setAttribute('aria-label', 'Dismiss');
-    close.textContent = '×';
-    close.addEventListener('click', function () {
-      toast.classList.add('toast--out');
+    var close = document.createElement("button");
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", function () {
+      toast.classList.add("toast--out");
       setTimeout(function () {
         toast.remove();
       }, 250);
@@ -484,13 +564,13 @@
 
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
-        toast.classList.add('toast--in');
+        toast.classList.add("toast--in");
       });
     });
 
-    var ms = duration || (kind === 'error' ? 5500 : 3200);
+    var ms = duration || (kind === "error" ? 5500 : 3200);
     _toastTimer = setTimeout(function () {
-      toast.classList.add('toast--out');
+      toast.classList.add("toast--out");
       setTimeout(function () {
         if (toast.parentNode) toast.remove();
       }, 280);
@@ -500,40 +580,40 @@
   /* ── Scanner engine (preserve behavior) ───────────────────────── */
   function buildScanner() {
     try {
-      if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
-        return new Html5Qrcode('reader', {
+      if (typeof Html5QrcodeSupportedFormats !== "undefined") {
+        return new Html5Qrcode("reader", {
           formatsToSupport: [
             Html5QrcodeSupportedFormats.QR_CODE,
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.EAN_13,
             Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.CODE_39
-          ]
+            Html5QrcodeSupportedFormats.CODE_39,
+          ],
         });
       }
     } catch (e) {
-      console.warn('Barcode formats fallback', e);
+      console.warn("Barcode formats fallback", e);
     }
-    return new Html5Qrcode('reader');
+    return new Html5Qrcode("reader");
   }
 
   function clearReaderDom() {
-    var el = $('reader');
-    if (el) el.innerHTML = '';
+    var el = $("reader");
+    if (el) el.innerHTML = "";
   }
 
   function ensureVideoPlaying() {
-    var wrap = $('reader-wrap');
+    var wrap = $("reader-wrap");
     if (!wrap) return;
-    var vid = wrap.querySelector('video');
+    var vid = wrap.querySelector("video");
     if (!vid) return;
-    vid.setAttribute('playsinline', '');
-    vid.setAttribute('webkit-playsinline', '');
+    vid.setAttribute("playsinline", "");
+    vid.setAttribute("webkit-playsinline", "");
     vid.playsInline = true;
     vid.muted = true;
     if (vid.paused) {
       var playPromise = vid.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
+      if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(function () {});
       }
     }
@@ -553,9 +633,9 @@
         try {
           state.scanner.resume();
           ensureVideoPlaying();
-          setStatus('Point the camera at the next code.');
+          setStatus("Point the camera at the next code.");
         } catch (err) {
-          console.warn('Scanner resume failed, restarting', err);
+          console.warn("Scanner resume failed, restarting", err);
           restartScannerFully();
         }
       });
@@ -565,39 +645,39 @@
   function startScanner() {
     if (state.scanning) return;
     if (!state.cug) {
-      setStatus('Save your CUG in Settings first.', 'error');
+      setStatus("Save your CUG in Settings first.", "error");
       return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera is not available in this browser.', 'error');
+      setStatus("Camera is not available in this browser.", "error");
       return;
     }
-    setStatus('Starting camera…');
+    setStatus("Starting camera…");
     clearReaderDom();
 
-    var readerWrap = $('reader-wrap');
-    readerWrap.classList.remove('hidden');
-    readerWrap.setAttribute('aria-hidden', 'false');
+    var readerWrap = $("reader-wrap");
+    readerWrap.classList.remove("hidden");
+    readerWrap.setAttribute("aria-hidden", "false");
 
     state.scanner = buildScanner();
     state.scanner
       .start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {})
       .then(function () {
         state.scanning = true;
-        setStatus('Point the camera at a barcode or QR code.');
+        setStatus("Point the camera at a barcode or QR code.");
         applyReaderVideoAttrs();
       })
       .catch(function (err) {
         console.error(err);
-        setStatus(err.message || 'Could not start camera.', 'error');
+        setStatus(err.message || "Could not start camera.", "error");
         try {
           if (state.scanner) state.scanner.clear();
         } catch (e) {}
         state.scanner = null;
         state.scanning = false;
         clearReaderDom();
-        readerWrap.classList.add('hidden');
-        readerWrap.setAttribute('aria-hidden', 'true');
+        readerWrap.classList.add("hidden");
+        readerWrap.setAttribute("aria-hidden", "true");
       });
   }
 
@@ -606,7 +686,7 @@
       state.scanChoiceOpen = false;
       return;
     }
-    setStatus('Restarting camera…');
+    setStatus("Restarting camera…");
     var prev = state.scanner;
     state.scanning = false;
     prev
@@ -623,13 +703,18 @@
       })
       .then(function () {
         state.scanner = buildScanner();
-        return state.scanner.start(SCAN_CAMERA, SCAN_CONFIG, onScanSuccess, function () {});
+        return state.scanner.start(
+          SCAN_CAMERA,
+          SCAN_CONFIG,
+          onScanSuccess,
+          function () {},
+        );
       })
       .then(function () {
         state.scanning = true;
         state.scanChoiceOpen = false;
         applyReaderVideoAttrs();
-        setStatus('Point the camera at the next code.');
+        setStatus("Point the camera at the next code.");
       })
       .catch(function (err) {
         console.error(err);
@@ -637,12 +722,15 @@
         state.scanner = null;
         state.scanning = false;
         clearReaderDom();
-        var readerWrap = $('reader-wrap');
+        var readerWrap = $("reader-wrap");
         if (readerWrap) {
-          readerWrap.classList.add('hidden');
-          readerWrap.setAttribute('aria-hidden', 'true');
+          readerWrap.classList.add("hidden");
+          readerWrap.setAttribute("aria-hidden", "true");
         }
-        setStatus(err.message || 'Could not restart camera. Use Retry camera.', 'error');
+        setStatus(
+          err.message || "Could not restart camera. Use Retry camera.",
+          "error",
+        );
       });
   }
 
@@ -650,7 +738,7 @@
     if (!state.scanner || !state.scanning) {
       return Promise.resolve();
     }
-    var readerWrap = $('reader-wrap');
+    var readerWrap = $("reader-wrap");
     return state.scanner
       .stop()
       .then(function () {
@@ -661,10 +749,10 @@
         state.scanning = false;
         clearReaderDom();
         if (readerWrap) {
-          readerWrap.classList.add('hidden');
-          readerWrap.setAttribute('aria-hidden', 'true');
+          readerWrap.classList.add("hidden");
+          readerWrap.setAttribute("aria-hidden", "true");
         }
-        setStatus('Camera stopped.');
+        setStatus("Camera stopped.");
       })
       .catch(function (err) {
         console.error(err);
@@ -672,8 +760,8 @@
         state.scanning = false;
         clearReaderDom();
         if (readerWrap) {
-          readerWrap.classList.add('hidden');
-          readerWrap.setAttribute('aria-hidden', 'true');
+          readerWrap.classList.add("hidden");
+          readerWrap.setAttribute("aria-hidden", "true");
         }
       });
   }
@@ -686,42 +774,50 @@
     var base = state.apiBase;
     var q =
       base +
-      '/imeis/scanner/check-record?cug=' +
+      "/imeis/scanner/check-record?cug=" +
       encodeURIComponent(state.cug) +
-      '&imei=' +
+      "&imei=" +
       encodeURIComponent(rawBarcode);
-    return fetch(q, { method: 'GET' }).then(function (res) {
-      if (!res.ok) throw new Error('check failed');
+    return fetch(q, { method: "GET" }).then(function (res) {
+      if (!res.ok) throw new Error("check failed");
       return res.json();
     });
   }
 
   function fetchScannerDeviceRecords() {
     var base = state.apiBase;
-    var url = base + '/imeis/scanner/device-records?cug=' + encodeURIComponent(state.cug);
-    return fetch(url, { method: 'GET' }).then(function (res) {
-      if (!res.ok) throw new Error('sync failed');
+    var url =
+      base +
+      "/imeis/scanner/device-records?cug=" +
+      encodeURIComponent(state.cug);
+    return fetch(url, { method: "GET" }).then(function (res) {
+      if (!res.ok) throw new Error("sync failed");
       return res.json();
     });
   }
 
   function handleDecodedScan(rawText) {
-    var text = String(rawText || '').trim();
+    var text = String(rawText || "").trim();
     var norm = normDigits(text);
-    if (!norm) {
-      showToast('Invalid code', 'error', 3000);
+    var validationErr = validateImeiDigits(norm);
+    if (validationErr) {
+      showToast(validationErr, "error", 4500);
       resumeScannerForNextScan();
       return;
     }
 
-    if (sessionHasNorm(norm)) {
-      showToast('Already scanned', 'info', 2800);
+    if (norm.length === 15 && norm.charAt(0) !== "8") {
+      showToast("Check IMEI — full codes usually start with 8", "info", 3200);
+    }
+
+    if (sessionHasMatch(norm)) {
+      showToast("Already scanned", "info", 2800);
       resumeScannerForNextScan();
       return;
     }
 
-    if (serverHasNorm(norm)) {
-      showToast('This device has already been signed for', 'error', 4000);
+    if (serverHasMatch(norm)) {
+      showToast("This device has already been signed for", "error", 4000);
       resumeScannerForNextScan();
       return;
     }
@@ -731,27 +827,27 @@
         .then(function (data) {
           if (data && data.exists) {
             rememberServerImei(text);
-            showToast('This device has already been signed for', 'error', 4000);
+            showToast("This device has already been signed for", "error", 4000);
             return;
           }
           state.sessionScans.push({
             id: newLocalId(),
             barcode: text,
-            scannedAt: new Date().toISOString()
+            scannedAt: new Date().toISOString(),
           });
           persistSession();
           renderSessionList();
-          showToast('IMEI added', 'success', 2600);
+          showToast("IMEI added", "success", 2600);
         })
         .catch(function () {
           state.sessionScans.push({
             id: newLocalId(),
             barcode: text,
-            scannedAt: new Date().toISOString()
+            scannedAt: new Date().toISOString(),
           });
           persistSession();
           renderSessionList();
-          showToast('IMEI added', 'success', 2600);
+          showToast("IMEI added", "success", 2600);
         })
         .finally(function () {
           resumeScannerForNextScan();
@@ -760,18 +856,18 @@
       state.sessionScans.push({
         id: newLocalId(),
         barcode: text,
-        scannedAt: new Date().toISOString()
+        scannedAt: new Date().toISOString(),
       });
       persistSession();
       renderSessionList();
-      showToast('IMEI added', 'success', 2600);
+      showToast("IMEI added", "success", 2600);
       resumeScannerForNextScan();
     }
   }
 
   function onScanSuccess(decodedText) {
     if (state.scanChoiceOpen) return;
-    var text = String(decodedText || '').trim();
+    var text = String(decodedText || "").trim();
     if (!text) return;
     var now = Date.now();
     if (text === state.lastCode && now - state.lastCodeAt < 1100) return;
@@ -795,32 +891,32 @@
   }
 
   function renderSessionList() {
-    var list = $('session-list');
-    var empty = $('session-empty');
-    var submit = $('btn-submit');
+    var list = $("session-list");
+    var empty = $("session-empty");
+    var submit = $("btn-submit");
     if (!list || !empty) return;
-    list.innerHTML = '';
+    list.innerHTML = "";
     state.sessionScans.forEach(function (item) {
-      var row = document.createElement('div');
-      row.className = 'session-row';
-      row.setAttribute('role', 'listitem');
+      var row = document.createElement("div");
+      row.className = "session-row";
+      row.setAttribute("role", "listitem");
 
-      var code = document.createElement('div');
-      code.className = 'session-row__code';
+      var code = document.createElement("div");
+      code.className = "session-row__code";
       code.textContent = item.barcode;
 
-      var rm = document.createElement('button');
-      rm.type = 'button';
-      rm.className = 'session-row__remove';
-      rm.setAttribute('aria-label', 'Remove ' + item.barcode);
-      rm.textContent = '×';
-      rm.addEventListener('click', function () {
+      var rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "session-row__remove";
+      rm.setAttribute("aria-label", "Remove " + item.barcode);
+      rm.textContent = "×";
+      rm.addEventListener("click", function () {
         state.sessionScans = state.sessionScans.filter(function (p) {
           return p.id !== item.id;
         });
         persistSession();
         renderSessionList();
-        showToast('Removed from list', 'info', 2000);
+        showToast("Removed from list", "info", 2000);
       });
 
       row.appendChild(code);
@@ -828,24 +924,25 @@
       list.appendChild(row);
     });
 
-    empty.classList.toggle('hidden', state.sessionScans.length > 0);
-    if (submit) submit.disabled = state.sessionScans.length === 0 || state.submitting;
+    empty.classList.toggle("hidden", state.sessionScans.length > 0);
+    if (submit)
+      submit.disabled = state.sessionScans.length === 0 || state.submitting;
   }
 
   function appendHistoryEntries(items, uploadedAtIso) {
     var d = new Date(uploadedAtIso);
     var dayKey =
       d.getFullYear() +
-      '-' +
-      String(d.getMonth() + 1).padStart(2, '0') +
-      '-' +
-      String(d.getDate()).padStart(2, '0');
+      "-" +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(d.getDate()).padStart(2, "0");
     items.forEach(function (barcode) {
       state.history.push({
         cug: state.cug,
         dayKey: dayKey,
         imei: String(barcode).trim(),
-        uploadedAt: uploadedAtIso
+        uploadedAt: uploadedAtIso,
       });
     });
     persistHistory();
@@ -853,16 +950,24 @@
 
   function formatHistoryDayTitle(dayKey) {
     try {
-      var parts = dayKey.split('-');
-      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      var parts = dayKey.split("-");
+      var d = new Date(
+        parseInt(parts[0], 10),
+        parseInt(parts[1], 10) - 1,
+        parseInt(parts[2], 10),
+      );
+      return d.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
     } catch (e) {
       return dayKey;
     }
   }
 
   function renderHistory() {
-    var body = $('history-body');
+    var body = $("history-body");
     if (!body) return;
     var rows = historyForCurrentCug();
     if (!rows.length) {
@@ -872,7 +977,7 @@
     }
     var byDay = {};
     rows.forEach(function (row) {
-      var k = row.dayKey || dayKeyFromIso(row.uploadedAt) || '';
+      var k = row.dayKey || dayKeyFromIso(row.uploadedAt) || "";
       if (!k) return;
       if (!byDay[k]) byDay[k] = [];
       byDay[k].push(row);
@@ -880,20 +985,20 @@
     var days = Object.keys(byDay).sort(function (a, b) {
       return b.localeCompare(a);
     });
-    body.innerHTML = '';
+    body.innerHTML = "";
     days.forEach(function (day) {
-      var section = document.createElement('section');
-      section.className = 'history-day';
-      var h = document.createElement('h3');
-      h.className = 'history-day__title';
+      var section = document.createElement("section");
+      section.className = "history-day";
+      var h = document.createElement("h3");
+      h.className = "history-day__title";
       h.textContent = formatHistoryDayTitle(day);
-      var ol = document.createElement('ol');
+      var ol = document.createElement("ol");
       byDay[day]
         .sort(function (a, b) {
           return new Date(b.uploadedAt) - new Date(a.uploadedAt);
         })
         .forEach(function (row) {
-          var li = document.createElement('li');
+          var li = document.createElement("li");
           li.textContent = row.imei;
           ol.appendChild(li);
         });
@@ -907,21 +1012,36 @@
     var scannedDate = new Date(pendingItem.scannedAt);
     if (isNaN(scannedDate.getTime())) scannedDate = new Date();
     var payload = {
-      cug: String(state.cug || '').trim(),
+      cug: String(state.cug || "").trim(),
       imei: String(pendingItem.barcode).trim(),
-      timestamp: scannedDate.toISOString()
+      timestamp: scannedDate.toISOString(),
     };
-    return fetch(state.apiBase + '/imeis/device-records', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    return fetch(state.apiBase + "/imeis/device-records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     }).then(function (res) {
       if (res.status === 409) {
         return { _conflict: true, barcode: payload.imei };
       }
+      if (res.status === 400) {
+        return res
+          .json()
+          .catch(function () {
+            return {};
+          })
+          .then(function (body) {
+            var detail = (body && body.detail) || "Invalid IMEI";
+            return {
+              _invalid: true,
+              barcode: payload.imei,
+              message: String(detail),
+            };
+          });
+      }
       if (!res.ok) {
         return res.text().then(function (msg) {
-          throw new Error('Server error ' + res.status + ': ' + msg);
+          throw new Error("Server error " + res.status + ": " + msg);
         });
       }
       return res.json().catch(function () {
@@ -932,11 +1052,33 @@
 
   function openSubmitModal() {
     if (!state.sessionScans.length) return;
-    $('submit-confirm-backdrop').classList.remove('hidden');
+    var invalid = [];
+    state.sessionScans.forEach(function (item) {
+      var err = validateImeiDigits(normDigits(item.barcode));
+      if (err) invalid.push(item.barcode);
+    });
+    if (invalid.length) {
+      showToast(
+        "Fix invalid IMEIs before submitting (" + invalid.length + ").",
+        "error",
+        5000,
+      );
+      return;
+    }
+    var listEl = $("submit-confirm-list");
+    if (listEl) {
+      listEl.innerHTML = "";
+      state.sessionScans.forEach(function (item) {
+        var li = document.createElement("li");
+        li.textContent = item.barcode;
+        listEl.appendChild(li);
+      });
+    }
+    $("submit-confirm-backdrop").classList.remove("hidden");
   }
 
   function closeSubmitModal() {
-    $('submit-confirm-backdrop').classList.add('hidden');
+    $("submit-confirm-backdrop").classList.add("hidden");
   }
 
   function submitConfirmed() {
@@ -952,7 +1094,7 @@
           cug: state.cug,
           imei: item.barcode,
           scannedAt: item.scannedAt,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         });
       });
       state.sessionScans = [];
@@ -961,13 +1103,18 @@
       updateOutboxHint();
       state.submitting = false;
       renderSessionList();
-      showToast('Saved offline — will sync when you are back online.', 'info', 5000);
+      showToast(
+        "Saved offline — will sync when you are back online.",
+        "info",
+        5000,
+      );
       return;
     }
 
     var uploadedAt = new Date().toISOString();
     var okImeis = [];
     var conflictImeis = [];
+    var invalidImeis = [];
 
     function processNext() {
       if (!state.sessionScans.length) {
@@ -975,24 +1122,27 @@
         persistSession();
         state.submitting = false;
         renderSessionList();
-        if (okImeis.length && !conflictImeis.length) {
-          setStatus('Submit complete.', 'success');
-          showToast('Submit complete.', 'success', 3500);
+        if (invalidImeis.length) {
+          setStatus("Some IMEIs were rejected.", "error");
+          showToast(invalidImeis[0].message || "Invalid IMEI", "error", 5000);
+        } else if (okImeis.length && !conflictImeis.length) {
+          setStatus("Submit complete.", "success");
+          showToast("Submit complete.", "success", 3500);
         } else if (okImeis.length && conflictImeis.length) {
           var partial =
-            'Saved ' +
+            "Saved " +
             okImeis.length +
-            '; ' +
+            "; " +
             conflictImeis.length +
-            ' already signed for.';
-          setStatus(partial, 'success');
-          showToast(partial, 'info', 5000);
+            " already signed for.";
+          setStatus(partial, "success");
+          showToast(partial, "info", 5000);
         } else if (conflictImeis.length) {
-          setStatus('Already signed for.', 'error');
-          showToast('This device has already been signed for', 'error', 4500);
+          setStatus("Already signed for.", "error");
+          showToast("This device has already been signed for", "error", 4500);
         } else {
-          setStatus('Nothing to submit.', 'error');
-          showToast('Nothing to submit.', 'error', 3500);
+          setStatus("Nothing to submit.", "error");
+          showToast("Nothing to submit.", "error", 3500);
         }
         return;
       }
@@ -1001,11 +1151,15 @@
       writeImeiToApi(item)
         .then(function (resp) {
           state.sessionScans.shift();
-          rememberServerImei(item.barcode);
-          if (resp && resp._conflict) {
-            conflictImeis.push(item.barcode);
+          if (resp && resp._invalid) {
+            invalidImeis.push({ barcode: item.barcode, message: resp.message });
           } else {
-            okImeis.push(item.barcode);
+            rememberServerImei(item.barcode);
+            if (resp && resp._conflict) {
+              conflictImeis.push(item.barcode);
+            } else {
+              okImeis.push(item.barcode);
+            }
           }
           persistSession();
           renderSessionList();
@@ -1018,7 +1172,7 @@
             cug: state.cug,
             imei: item.barcode,
             scannedAt: item.scannedAt,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
           });
           persistOutbox();
           persistSession();
@@ -1046,12 +1200,16 @@
         closeOutboxPanel();
         if (saved.length) {
           appendHistoryEntries(saved, uploadedAt);
-          showToast('Synced ' + saved.length + ' offline scan(s).', 'success', 4000);
+          showToast(
+            "Synced " + saved.length + " offline scan(s).",
+            "success",
+            4000,
+          );
         }
         return;
       }
       var job = copy[idx];
-      if (String(job.cug || '').trim() !== state.cug) {
+      if (String(job.cug || "").trim() !== state.cug) {
         remaining.push(job);
         step(idx + 1);
         return;
@@ -1076,52 +1234,56 @@
   function tryAutoStartCamera() {
     if (!state.cug) return;
     setTimeout(function () {
-      if ($('view-scan') && !$('view-scan').classList.contains('view--hidden')) {
+      if (
+        $("view-scan") &&
+        !$("view-scan").classList.contains("view--hidden")
+      ) {
         startScanner();
       }
     }, 450);
   }
 
   function registerServiceWorker() {
-    if (!('serviceWorker' in navigator)) return;
-    var ok = location.protocol === 'https:' || location.hostname === 'localhost';
+    if (!("serviceWorker" in navigator)) return;
+    var ok =
+      location.protocol === "https:" || location.hostname === "localhost";
     if (!ok) return;
-    navigator.serviceWorker.register('/sw.js').catch(function (e) {
-      console.warn('SW register failed', e);
+    navigator.serviceWorker.register("/sw.js").catch(function (e) {
+      console.warn("SW register failed", e);
     });
   }
 
   function wireUi() {
-    $('menu-history').addEventListener('click', function () {
-      showView('history');
+    $("menu-history").addEventListener("click", function () {
+      showView("history");
     });
-    $('menu-settings').addEventListener('click', function () {
-      showView('settings');
+    $("menu-settings").addEventListener("click", function () {
+      showView("settings");
     });
 
-    $('history-back').addEventListener('click', function () {
-      showView('scan');
+    $("history-back").addEventListener("click", function () {
+      showView("scan");
       tryAutoStartCamera();
     });
 
-    $('history-refresh').addEventListener('click', function () {
+    $("history-refresh").addEventListener("click", function () {
       refreshHistoryFromServer(true);
     });
 
-    $('settings-back').addEventListener('click', function () {
-      showView('scan');
+    $("settings-back").addEventListener("click", function () {
+      showView("scan");
       tryAutoStartCamera();
     });
 
-    $('settings-save').addEventListener('click', function () {
-      var v = $('settings-cug-input').value;
+    $("settings-save").addEventListener("click", function () {
+      var v = $("settings-cug-input").value;
       if (!validateCug(v)) {
-        showToast('Enter a valid 9-digit CUG.', 'error', 4000);
+        showToast(cugValidationMessage(), "error", 4500);
         return;
       }
-      var apiIn = $('settings-api-input').value.trim();
+      var apiIn = $("settings-api-input").value.trim();
       if (apiIn) setApiBase(apiIn);
-      else setApiBase('');
+      else setApiBase("");
 
       saveCug(v);
       state.apiBase = getApiBase();
@@ -1129,50 +1291,56 @@
       refreshHistoryFromServer(false)
         .then(function (data) {
           showToast(
-            'CUG saved — ' + (data.count || 0) + ' record(s) synced to History.',
-            'success',
-            4000
+            "CUG saved — " +
+              (data.count || 0) +
+              " record(s) synced to History.",
+            "success",
+            4000,
           );
         })
         .catch(function () {
-          showToast('CUG saved (server sync failed — use History refresh when online).', 'info', 5000);
+          showToast(
+            "CUG saved (server sync failed — use History refresh when online).",
+            "info",
+            5000,
+          );
         })
         .finally(function () {
-          showView('scan');
+          showView("scan");
           tryAutoStartCamera();
         });
     });
 
-    $('btn-retry').addEventListener('click', function () {
+    $("btn-retry").addEventListener("click", function () {
       stopScanner().then(function () {
         setTimeout(startScanner, 350);
       });
     });
 
-    $('btn-submit').addEventListener('click', function () {
+    $("btn-submit").addEventListener("click", function () {
       openSubmitModal();
     });
 
-    $('submit-cancel').addEventListener('click', closeSubmitModal);
-    $('submit-confirm').addEventListener('click', submitConfirmed);
+    $("submit-cancel").addEventListener("click", closeSubmitModal);
+    $("submit-confirm").addEventListener("click", submitConfirmed);
 
-    $('submit-confirm-backdrop').addEventListener('click', function (e) {
-      if (e.target === $('submit-confirm-backdrop')) closeSubmitModal();
+    $("submit-confirm-backdrop").addEventListener("click", function (e) {
+      if (e.target === $("submit-confirm-backdrop")) closeSubmitModal();
     });
 
-    $('outbox-hint').addEventListener('click', openOutboxPanel);
-    $('outbox-panel-close').addEventListener('click', closeOutboxPanel);
-    $('outbox-panel-backdrop').addEventListener('click', function (e) {
-      if (e.target === $('outbox-panel-backdrop')) closeOutboxPanel();
+    $("outbox-hint").addEventListener("click", openOutboxPanel);
+    $("outbox-panel-close").addEventListener("click", closeOutboxPanel);
+    $("outbox-panel-backdrop").addEventListener("click", function (e) {
+      if (e.target === $("outbox-panel-backdrop")) closeOutboxPanel();
     });
 
-    window.addEventListener('online', function () {
+    window.addEventListener("online", function () {
       updateConnPill();
       flushOutbox();
     });
-    window.addEventListener('offline', updateConnPill);
+    window.addEventListener("offline", updateConnPill);
 
-    document.addEventListener('visibilitychange', function () {
+    document.addEventListener("visibilitychange", function () {
       if (document.hidden || !state.scanning) return;
       ensureVideoPlaying();
       if (state.scanChoiceOpen) return;
@@ -1196,6 +1364,7 @@
     } else if (state.cug) {
       state.serverImeiKeys = {};
     }
+    rebuildServerImeiIndex();
 
     updateConnPill();
     updateOutboxHint();
@@ -1203,9 +1372,9 @@
     registerServiceWorker();
 
     if (!state.cug) {
-      showView('settings');
+      showView("settings");
     } else {
-      showView('scan');
+      showView("scan");
       renderSessionList();
       tryAutoStartCamera();
     }
@@ -1217,8 +1386,8 @@
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }

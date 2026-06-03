@@ -312,6 +312,36 @@ body {
   background: rgb(var(--danger) / 0.08);
 }
 
+.imei-notes {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgb(var(--border) / 0.85);
+  background: rgb(var(--card) / 0.65);
+  font-size: var(--text-sm);
+  color: rgb(var(--muted));
+}
+
+.imei-notes__title {
+  margin: 0 0 6px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: rgb(var(--fg));
+  letter-spacing: 0.02em;
+}
+
+.imei-notes__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 4px;
+}
+
+.imei-notes__list strong {
+  color: rgb(var(--fg));
+  font-weight: 600;
+}
+
 .session-empty {
   margin: 0;
   padding: 12px 10px;
@@ -684,6 +714,28 @@ body {
   padding: 16px 14px 18px;
   border: 1px solid rgb(var(--border));
   box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.48);
+}
+
+.submit-confirm-list {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  max-height: 160px;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--bg));
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+}
+
+.submit-confirm-list li {
+  padding: 4px 0;
+  word-break: break-all;
+}
+
+.submit-confirm-list li + li {
+  border-top: 1px solid rgb(var(--border) / 0.5);
 }
 
 .modal h2 {
