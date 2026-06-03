@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
@@ -9,7 +9,10 @@
     <meta name="theme-color" content="#0E1117" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="ADM Scanner" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="ADM Scanner" />
     <title>ADM Scanner</title>
@@ -21,24 +24,57 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/styles.css" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/icons/favicon-32.png"
+    />
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
-    <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script
+      defer
+      src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
+    ></script>
     <script defer src="/app.js"></script>
   </head>
   <body>
     <div id="app-root">
       <header class="topbar" aria-label="App bar">
         <div class="topbar__brand">
-          <img class="topbar__logo" src="/brand/logo.png" width="32" height="32" alt="" />
+          <img
+            class="topbar__logo"
+            src="/brand/logo.png"
+            width="32"
+            height="32"
+            alt=""
+          />
           <h1 class="topbar__title">ADM Scanner</h1>
-          <span id="conn-pill" class="conn-pill conn-pill--online" aria-live="polite">Online</span>
+          <span
+            id="conn-pill"
+            class="conn-pill conn-pill--online"
+            aria-live="polite"
+            >Online</span
+          >
         </div>
         <details class="topbar-menu" id="topbar-menu">
           <summary class="menu-trigger" aria-label="Open menu">⋮</summary>
           <div class="menu-panel" role="menu">
-            <button type="button" class="menu-item" id="menu-history" role="menuitem">History</button>
-            <button type="button" class="menu-item" id="menu-settings" role="menuitem">Settings</button>
+            <button
+              type="button"
+              class="menu-item"
+              id="menu-history"
+              role="menuitem"
+            >
+              History
+            </button>
+            <button
+              type="button"
+              class="menu-item"
+              id="menu-settings"
+              role="menuitem"
+            >
+              Settings
+            </button>
           </div>
         </details>
       </header>
@@ -51,30 +87,70 @@
           </div>
           <p id="status" class="status-line" role="status"></p>
 
+          <aside class="imei-notes" aria-label="IMEI scanning notes">
+            <p class="imei-notes__title">Before you scan</p>
+            <ul class="imei-notes__list">
+              <li>Verify each IMEI on the device label before submitting.</li>
+              <li>
+                Double-check the list on the submit screen before you confirm.
+              </li>
+            </ul>
+          </aside>
+
           <section class="session-section" aria-labelledby="session-heading">
             <h2 id="session-heading" class="section-title">Scanned devices</h2>
             <div id="session-list" class="session-list" role="list"></div>
-            <p id="session-empty" class="session-empty">No IMEIs in this session yet. Point the camera at a barcode.</p>
+            <p id="session-empty" class="session-empty">
+              No IMEIs in this session yet. Point the camera at a barcode.
+            </p>
           </section>
 
           <div class="action-row">
-            <button type="button" id="btn-retry" class="btn btn-secondary">Retry camera</button>
-            <button type="button" id="btn-submit" class="btn btn-primary" disabled>Submit</button>
+            <button type="button" id="btn-retry" class="btn btn-secondary">
+              Retry camera
+            </button>
+            <button
+              type="button"
+              id="btn-submit"
+              class="btn btn-primary"
+              disabled
+            >
+              Submit
+            </button>
           </div>
-          <button type="button" id="outbox-hint" class="outbox-hint hidden" aria-live="polite">
+          <button
+            type="button"
+            id="outbox-hint"
+            class="outbox-hint hidden"
+            aria-live="polite"
+          >
             Pending sync
           </button>
-          <p class="footer-note">Install to Home Screen for a full-screen experience.</p>
+          <p class="footer-note">
+            Install to Home Screen for a full-screen experience.
+          </p>
         </div>
       </main>
 
       <!-- History view -->
       <main id="view-history" class="view view--hidden" aria-label="History">
         <div class="subnav subnav--history">
-          <button type="button" id="history-back" class="btn btn-ghost btn--back">← Back</button>
+          <button
+            type="button"
+            id="history-back"
+            class="btn btn-ghost btn--back"
+          >
+            ← Back
+          </button>
           <div class="subnav__row">
             <p class="subnav__cug">CUG <strong id="history-cug">—</strong></p>
-            <button type="button" id="history-refresh" class="btn btn-secondary btn--compact">Refresh</button>
+            <button
+              type="button"
+              id="history-refresh"
+              class="btn btn-secondary btn--compact"
+            >
+              Refresh
+            </button>
           </div>
         </div>
         <div id="history-body" class="history-body"></div>
@@ -83,14 +159,21 @@
       <!-- Settings view -->
       <main id="view-settings" class="view view--hidden" aria-label="Settings">
         <div class="subnav">
-          <button type="button" id="settings-back" class="btn btn-ghost btn--back hidden">← Back</button>
+          <button
+            type="button"
+            id="settings-back"
+            class="btn btn-ghost btn--back hidden"
+          >
+            ← Back
+          </button>
           <p class="subnav__title">Settings</p>
         </div>
         <div class="settings-card">
           <h2 class="settings-card__title">Installer CUG</h2>
           <p class="settings-card__hint">
-            Enter your 9-digit CUG (for example <strong>97898XXXX</strong>). This value is stored only on this device
-            and sent with each scan. Make sure it is correct before scanning.
+            Enter your 9-digit CUG: <strong>97898</strong> plus your <strong>last 4 digits</strong>
+            (for example <strong>978981234</strong>). Nothing else is accepted. This is stored on this device only
+            and sent with each scan — double-check before you start.
           </p>
           <label class="field-label" for="settings-cug-input">CUG</label>
           <input
@@ -100,26 +183,43 @@
             autocomplete="username"
             minlength="9"
             maxlength="9"
-            placeholder="97898XXXX"
+            pattern="97898[0-9]{4}"
+            placeholder="978981234"
+            title="9 digits: 97898 plus your last 4 digits"
           />
-          <button type="button" id="settings-save" class="btn btn-primary settings-save">Save CUG &amp; sync</button>
+          <button
+            type="button"
+            id="settings-save"
+            class="btn btn-primary settings-save"
+          >
+            Save CUG &amp; sync
+          </button>
           <details class="settings-advanced">
             <summary>Advanced</summary>
-            <label class="field-label" for="settings-api-input">API base URL</label>
+            <label class="field-label" for="settings-api-input"
+              >API base URL</label
+            >
             <input
               id="settings-api-input"
               type="url"
               placeholder="https://…/api"
               spellcheck="false"
             />
-            <p class="settings-advanced__hint">Must end with <code>/api</code> (no trailing slash). Used for sync and submit.</p>
+            <p class="settings-advanced__hint">
+              Must end with <code>/api</code> (no trailing slash). Used for sync
+              and submit.
+            </p>
           </details>
         </div>
       </main>
     </div>
 
     <!-- Pending offline sync -->
-    <div id="outbox-panel-backdrop" class="modal-backdrop hidden" role="presentation">
+    <div
+      id="outbox-panel-backdrop"
+      class="modal-backdrop hidden"
+      role="presentation"
+    >
       <div
         class="modal sheet"
         role="dialog"
@@ -128,15 +228,28 @@
       >
         <div class="sheet-head">
           <h2 id="outbox-panel-title">Waiting to sync</h2>
-          <button type="button" id="outbox-panel-close" class="btn-icon" aria-label="Close">×</button>
+          <button
+            type="button"
+            id="outbox-panel-close"
+            class="btn-icon"
+            aria-label="Close"
+          >
+            ×
+          </button>
         </div>
-        <p class="sheet-sub">Signed on these dates — will upload when you are online.</p>
+        <p class="sheet-sub">
+          Signed on these dates — will upload when you are online.
+        </p>
         <div id="outbox-panel-body" class="outbox-panel-body"></div>
       </div>
     </div>
 
     <!-- Submit confirmation -->
-    <div id="submit-confirm-backdrop" class="modal-backdrop hidden" role="presentation">
+    <div
+      id="submit-confirm-backdrop"
+      class="modal-backdrop hidden"
+      role="presentation"
+    >
       <div
         class="modal"
         role="dialog"
@@ -146,16 +259,31 @@
       >
         <h2 id="submit-confirm-title">Submit IMEIs?</h2>
         <p id="submit-confirm-desc">
-          Are you sure you want to submit these IMEIs? Please verify that all scanned devices are correct before
-          continuing.
+          Please verify every IMEI below matches the device label. Full codes
+          are 15 digits (often starting with 8); partial scans of the last 5–7
+          digits are accepted when that is all the barcode shows.
         </p>
+        <ul
+          id="submit-confirm-list"
+          class="submit-confirm-list"
+          aria-label="IMEIs to submit"
+        ></ul>
         <div class="modal-actions">
-          <button type="button" id="submit-cancel" class="btn btn-secondary">Cancel</button>
-          <button type="button" id="submit-confirm" class="btn btn-primary">Confirm submit</button>
+          <button type="button" id="submit-cancel" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button type="button" id="submit-confirm" class="btn btn-primary">
+            Confirm submit
+          </button>
         </div>
       </div>
     </div>
 
-    <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="false"></div>
+    <div
+      id="toast-container"
+      class="toast-container"
+      aria-live="assertive"
+      aria-atomic="false"
+    ></div>
   </body>
 </html>
